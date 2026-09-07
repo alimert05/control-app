@@ -63,6 +63,9 @@ class MainActivity : AppCompatActivity() {
         binding.deviceSettingsButton.setOnClickListener {
             startActivity(Intent(this, DeviceSettingsActivity::class.java))
         }
+        binding.moreActionsButton.setOnClickListener {
+            startActivity(Intent(this, ActionsActivity::class.java))
+        }
 
         kioskController.attachEscapeHatch(binding.headerTextColumn, window)
     }

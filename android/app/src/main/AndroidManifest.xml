@@ -62,6 +62,12 @@
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout" />
 
+        <activity
+            android:name=".ui.ActionsActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout" />
+
         <!--
           BOOT_COMPLETED is exempt from Android 8's implicit-broadcast manifest
           restrictions, so a plain manifest-declared receiver still works here

@@ -1,48 +1,44 @@
 import Foundation
 
-/// Turns a decoded `ProtocolMessage` command into a `MacOSControlling` call
-/// and produces the state/ack `ProtocolMessage` to send back.
+/// Turns a decoded `ProtocolMessage` command into an executed action and
+/// produces the state/ack `ProtocolMessage` to send back.
 ///
 ///     BLE Peripheral (PeripheralManager)
 ///         -> Protocol Parser (ProtocolMessage.decode)
 ///             -> Command Dispatcher (this)
-///                 -> MacOSController
+///                 -> Action Registry (id -> handler lookup + permission check)
+///                     -> Media/System/App/Window/Productivity controllers
 ///
-/// This is the only place that maps protocol action strings to macOS
-/// behavior. `PeripheralManager` never calls `MacOSController` directly, and
-/// nothing here touches CoreBluetooth.
+/// This is the only place that turns a protocol action ID into macOS
+/// behavior. `PeripheralManager` never touches the registry/controllers
+/// directly, and nothing here touches CoreBluetooth.
+///
+/// The registry is a strict allowlist: any action ID that isn't registered
+/// there is rejected with an error state and never executed — there is no
+/// generic/arbitrary command path anywhere in this chain.
 final class CommandDispatcher {
 
-    private let controller: MacOSControlling
+    private let registry: ActionRegistry
 
-    init(controller: MacOSControlling = MacOSController()) {
-        self.controller = controller
+    init(registry: ActionRegistry = ActionRegistry()) {
+        self.registry = registry
     }
 
     func dispatch(_ message: ProtocolMessage) -> ProtocolMessage {
         guard message.type == ProtocolMessage.typeCommand else {
             return .state(status: "error", action: message.action)
         }
-        guard let actionRaw = message.action, let command = AliControlCommand(rawValue: actionRaw) else {
+        guard let actionId = message.action, let handler = registry.handler(for: actionId) else {
             return .state(status: "error", action: message.action)
         }
-
-        let succeeded: Bool
-        switch command {
-        case .ping:
-            succeeded = true
-        case .volumeUp:
-            succeeded = controller.volumeUp()
-        case .volumeDown:
-            succeeded = controller.volumeDown()
-        case .muteToggle:
-            succeeded = controller.toggleMute()
-        case .playPause:
-            succeeded = controller.playPause()
-        case .openTerminal:
-            succeeded = controller.openTerminal()
+        guard registry.canExecute(handler) else {
+            // Permission-gated (Accessibility) and not currently trusted:
+            // fail safely with a clear error ack. Never prompts, never
+            // crashes, never affects any other/subsequent command.
+            return .state(status: "error", action: actionId)
         }
 
-        return .state(status: succeeded ? "ok" : "error", action: actionRaw)
+        let succeeded = handler.execute()
+        return .state(status: succeeded ? "ok" : "error", action: actionId)
     }
 }

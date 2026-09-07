@@ -18,8 +18,10 @@ final class ProtocolFixtureTests: XCTestCase {
         XCTAssertEqual(ProtocolMessage.decode(Data(json.utf8)), .command("volume_up"))
     }
 
-    func testParsesEveryAllowlistedCommandJsonProducedByAndroid() {
-        let cases: [(json: String, expected: AliControlCommand)] = [
+    func testParsesEveryPreTask006CommandJsonProducedByAndroid() {
+        // The five actions that existed before TASK-006 — must stay
+        // byte-for-byte backward compatible.
+        let cases: [(json: String, expected: AliControlAction)] = [
             ("{\"type\":\"command\",\"action\":\"ping\"}", .ping),
             ("{\"type\":\"command\",\"action\":\"volume_up\"}", .volumeUp),
             ("{\"type\":\"command\",\"action\":\"volume_down\"}", .volumeDown),
@@ -31,6 +33,21 @@ final class ProtocolFixtureTests: XCTestCase {
             let decoded = ProtocolMessage.decode(Data(testCase.json.utf8))
             XCTAssertEqual(decoded?.action, testCase.expected.rawValue, "decoding \(testCase.json)")
             XCTAssertEqual(decoded?.type, ProtocolMessage.typeCommand, "decoding \(testCase.json)")
+        }
+    }
+
+    /// The task's own example: {"type":"command","action":"open_vscode"}.
+    func testParsesNewTask006ActionExample() {
+        let json = "{\"type\":\"command\",\"action\":\"open_vscode\"}"
+        XCTAssertEqual(ProtocolMessage.decode(Data(json.utf8)), .command("open_vscode"))
+    }
+
+    func testParsesEveryTask006ActionIdProducedByAndroid() {
+        for action in AliControlAction.allCases {
+            let json = "{\"type\":\"command\",\"action\":\"\(action.rawValue)\"}"
+            let decoded = ProtocolMessage.decode(Data(json.utf8))
+            XCTAssertEqual(decoded?.action, action.rawValue, "decoding \(json)")
+            XCTAssertEqual(decoded?.type, ProtocolMessage.typeCommand, "decoding \(json)")
         }
     }
 
@@ -46,6 +63,14 @@ final class ProtocolFixtureTests: XCTestCase {
         XCTAssertEqual(object["action"] as? String, "volume_up")
         XCTAssertEqual(object["status"] as? String, "ok")
         XCTAssertEqual(object.count, 3)
+    }
+
+    /// The task's own example ack for open_vscode.
+    func testSerializesOpenVSCodeOkAckAndroidCanParse() throws {
+        let object = try jsonObject(.state(status: "ok", action: "open_vscode"))
+        XCTAssertEqual(object["type"] as? String, "state")
+        XCTAssertEqual(object["action"] as? String, "open_vscode")
+        XCTAssertEqual(object["status"] as? String, "ok")
     }
 
     func testSerializesErrorAckAndroidCanParse() throws {
@@ -84,26 +109,17 @@ final class ProtocolFixtureTests: XCTestCase {
     }
 
     func testUnsupportedActionReturnsErrorAndDoesNotExecute() {
-        let controller = RecordingMacOSController()
-        let dispatcher = CommandDispatcher(controller: controller)
+        let fakes = FakeControllers()
+        let dispatcher = CommandDispatcher(registry: fakes.makeRegistry())
         let message = ProtocolMessage.decode(Data("{\"type\":\"command\",\"action\":\"shutdown\"}".utf8))!
 
         let reply = dispatcher.dispatch(message)
 
         XCTAssertEqual(reply.status, "error")
-        XCTAssertTrue(controller.calls.isEmpty)
+        XCTAssertTrue(fakes.allCalls.isEmpty)
     }
 
     private func jsonObject(_ message: ProtocolMessage) throws -> [String: Any] {
         try XCTUnwrap(try JSONSerialization.jsonObject(with: message.encoded()) as? [String: Any])
     }
-}
-
-private final class RecordingMacOSController: MacOSControlling {
-    private(set) var calls: [String] = []
-    func volumeUp() -> Bool { calls.append("volumeUp"); return true }
-    func volumeDown() -> Bool { calls.append("volumeDown"); return true }
-    func toggleMute() -> Bool { calls.append("toggleMute"); return true }
-    func playPause() -> Bool { calls.append("playPause"); return true }
-    func openTerminal() -> Bool { calls.append("openTerminal"); return true }
 }

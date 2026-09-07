@@ -7,10 +7,18 @@
 - [x] TASK-003 — macOS BLE Agent & Core Controls
 - [x] TASK-004 — Device / Kiosk Mode
 - [x] TASK-005 — Polish, Packaging & Reliability
-- [ ] TASK-006 — Windows Agent
 
 ## Post-MVP
 
-Advanced features such as customizable layouts, shortcuts, themes,
-performance monitoring, hardware controls, and developer integrations
-will be planned after the MVP is complete.
+- [x] TASK-006 — Action Library Foundation
+- [ ] TASK-007 — Customizable Control Layout
+- [ ] TASK-008 — Custom Shortcuts & Profiles
+- [ ] TASK-009 — Themes
+- [ ] TASK-010 — Performance Monitoring
+- [ ] TASK-011 — Advanced System Controls
+- [ ] TASK-012 — Fan / Hardware Integrations
+- [ ] TASK-013 — AI Developer Integrations
+
+## Deferred
+
+- [ ] Windows Agent — implement when Windows hardware is available for physical testing

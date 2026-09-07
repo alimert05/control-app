@@ -45,6 +45,17 @@
         </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/moreActionsButton"
+            android:layout_width="wrap_content"
+            android:layout_height="56dp"
+            android:layout_marginEnd="12dp"
+            android:text="@string/action_more"
+            app:backgroundTint="@color/surface"
+            app:cornerRadius="14dp"
+            app:strokeColor="@color/divider"
+            app:strokeWidth="1dp" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/deviceSettingsButton"
             android:layout_width="56dp"
             android:layout_height="56dp"

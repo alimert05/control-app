@@ -17,7 +17,11 @@ in-app Device/Settings screen. TASK-005 turns the prototype into a stable,
 daily-usable MVP: a real double-clickable macOS `.app` (no more `swift run`),
 Open at Login, fully automatic BLE startup, bounded automatic reconnect on
 both sides, a connection state that only says "Connected" once the transport
-is genuinely usable, and hardened MTU/message-size handling (see
+is genuinely usable, and hardened MTU/message-size handling. TASK-006 adds
+the **action library**: 27 structured, platform-aware actions (up from 5
+hardcoded ones) across five categories, backed on Android by a static
+registry (`actions/`) UI can filter/drive, and on macOS by a data-driven
+`ActionRegistry` that replaced the old growing switch statement (see
 [TASKS.md](TASKS.md)).
 
 ## Overall architecture
@@ -27,19 +31,25 @@ Android tablet (BLE central)                    macOS agent (BLE peripheral)
 ─────────────────────────────                    ─────────────────────────────
 ui/                                               App/            menu bar shell
   MainActivity, ConnectActivity,                    main.swift, AppDelegate.swift,
-  DeviceSettingsActivity                              LoginItemController.swift
+  DeviceSettingsActivity, ActionsActivity             LoginItemController.swift
       |                                                  |
-kiosk/                                             BLE/
-  KioskController (immersive mode,                   PeripheralManager
-    keep-awake, escape hatch)                          (CBPeripheralManager)
-  BootReceiver (launch on boot)                          |
-      |                                             Protocol/
-device/                                                ProtocolMessage
-  DeviceController                                       AliControlCommands
-  BrightnessController, VolumeController,                |
-  BatteryProvider (tablet-local only —              Control/
-  never touches BLE)                                   CommandDispatcher
-      |                                                 MacOSController
+actions/                                           BLE/
+  ActionLibrary (static registry)                    PeripheralManager
+  ActionDefinition, Platform,                          (CBPeripheralManager)
+  ActionCategory, DangerLevel,                            |
+  PermissionRequirement                             Protocol/
+      |                                                ProtocolMessage
+kiosk/                                                   AliControlAction (IDs)
+  KioskController (immersive mode,                        |
+    keep-awake, escape hatch)                        Control/
+  BootReceiver (launch on boot)                         CommandDispatcher
+      |                                                 ActionRegistry (id -> handler,
+device/                                                   not a growing switch)
+  DeviceController                                      MediaController, SystemController,
+  BrightnessController, VolumeController,                AppLauncher, WindowController,
+  BatteryProvider (tablet-local only —                    ProductivityController
+  never touches BLE)                                    KeystrokeSimulator, AccessibilityChecking
+      |
 transport/
   Transport + TransportManager
   BluetoothTransport (BLE central,
@@ -156,22 +166,129 @@ TASK-005 adds one explicit recovery action: **Restart Advertising** in the
 menu bar, for the rare case advertising looks stuck without needing a full
 relaunch.
 
-### Supported commands
+### Action library (TASK-006)
 
 The full, explicit allowlist — nothing outside this list is ever sent or
-executed on either side (there is no generic/arbitrary command path):
+executed on either side (there is no generic/arbitrary command path, no
+shell strings, no application paths supplied over BLE). Every action has
+structured metadata, mirrored exactly on both platforms:
 
-| Action | Effect on macOS |
-|---|---|
-| `ping` | Acknowledged only; no system effect |
-| `volume_up` | Output volume +10 (AppleScript `set volume`) |
-| `volume_down` | Output volume −10 |
-| `mute_toggle` | Toggles output mute |
-| `play_pause` | Simulates the hardware media-key press (whatever app owns "now playing") |
-| `open_terminal` | Launches Terminal.app via `NSWorkspace` |
+- **id** — the stable wire-protocol string (`AliControlCommands.kt` /
+  `AliControlAction.swift`)
+- **label** — Android-only display text
+- **category** — `MEDIA` / `SYSTEM` / `APPS` / `WINDOW` / `PRODUCTIVITY`
+- **supportedPlatforms** — `MACOS` and/or `WINDOWS` (Windows metadata exists
+  now even though no Windows agent is implemented — see below)
+- **dangerLevel** — `SAFE` (sent immediately) or `CONFIRM` (Android must ask
+  first)
+- **permissionRequirement** — `NONE` or `ACCESSIBILITY`
+
+On Android this lives entirely in [`actions/ActionLibrary.kt`](android/app/src/main/java/com/alicontrol/app/actions/ActionLibrary.kt)
+(static, in-memory, zero I/O) — Android never executes anything itself; the
+library only describes what MAY be sent and lets UI filter by platform/
+category. On macOS, [`Control/ActionRegistry.swift`](macos/Sources/AliControlMac/Control/ActionRegistry.swift)
+independently re-validates every ID against its own allowlist before
+executing anything — the Android-side metadata existing does not itself
+grant the tablet the ability to run anything.
+
+| ID | Category | Danger | Permission | macOS implementation |
+|---|---|---|---|---|
+| `ping` | *(protocol-only, not in the library)* | — | — | Acknowledged only |
+| `play_pause` | MEDIA | SAFE | ACCESSIBILITY | Media-key `CGEvent` |
+| `next_track` | MEDIA | SAFE | ACCESSIBILITY | Media-key `CGEvent` |
+| `previous_track` | MEDIA | SAFE | ACCESSIBILITY | Media-key `CGEvent` |
+| `volume_up` | MEDIA | SAFE | NONE | AppleScript `set volume` |
+| `volume_down` | MEDIA | SAFE | NONE | AppleScript `set volume` |
+| `mute_toggle` | MEDIA | SAFE | NONE | AppleScript `set volume` |
+| `lock_screen` | SYSTEM | SAFE | NONE | `CGSession -suspend` |
+| `sleep` | SYSTEM | **CONFIRM** | NONE | `pmset sleepnow` |
+| `display_sleep` | SYSTEM | SAFE | NONE | `pmset displaysleepnow` (macOS only) |
+| `screenshot` | SYSTEM | SAFE | ACCESSIBILITY | Simulated ⌘⇧3 |
+| `show_desktop` | SYSTEM | SAFE | ACCESSIBILITY | Simulated F11 |
+| `spotlight` | SYSTEM | SAFE | ACCESSIBILITY | Simulated ⌘Space (macOS only) |
+| `mission_control` | SYSTEM | SAFE | ACCESSIBILITY | Simulated ⌃↑ (macOS only) |
+| `open_terminal` | APPS | SAFE | NONE | `NSWorkspace`, `com.apple.Terminal` |
+| `open_vscode` | APPS | SAFE | NONE | `NSWorkspace`, `com.microsoft.VSCode` |
+| `open_finder` | APPS | SAFE | NONE | `NSWorkspace`, `com.apple.finder` (macOS only) |
+| `open_browser` | APPS | SAFE | NONE | `NSWorkspace` default-browser lookup |
+| `open_spotify` | APPS | SAFE | NONE | `NSWorkspace`, `com.spotify.client` |
+| `open_system_settings` | APPS | SAFE | NONE | `NSWorkspace`, `com.apple.systempreferences` |
+| `open_activity_monitor` | APPS | SAFE | NONE | `NSWorkspace`, `com.apple.ActivityMonitor` (macOS only) |
+| `minimize_window` | WINDOW | SAFE | ACCESSIBILITY | Simulated ⌘M |
+| `close_window` | WINDOW | SAFE | ACCESSIBILITY | Simulated ⌘W (closes window only, never force-quits) |
+| `fullscreen_toggle` | WINDOW | SAFE | ACCESSIBILITY | Simulated ⌃⌘F |
+| `copy` | PRODUCTIVITY | SAFE | ACCESSIBILITY | Simulated ⌘C |
+| `paste` | PRODUCTIVITY | SAFE | ACCESSIBILITY | Simulated ⌘V |
+| `undo` | PRODUCTIVITY | SAFE | ACCESSIBILITY | Simulated ⌘Z |
+| `redo` | PRODUCTIVITY | SAFE | ACCESSIBILITY | Simulated ⌘⇧Z |
+
+27 actions total (6 media + 7 system + 7 apps + 3 window + 4 productivity).
+`play_pause`/`volume_up`/`volume_down`/`mute_toggle`/`open_terminal` are the
+five that existed before TASK-006 — same IDs, same wire format, fully
+backward compatible (`play_pause`'s permission classification changed from
+"undetermined" to `ACCESSIBILITY`, an honest correction — see below — but the
+protocol action ID itself is unchanged).
+
+**Why 14 of the 27 need Accessibility:** every action beyond volume/mute
+(built-in OS commands) and app launches (`NSWorkspace`, always unprivileged)
+works by simulating a real keyboard shortcut via `CGEventPost` on whatever
+app is currently frontmost — screenshots, Spotlight, Mission Control, window
+management, and copy/paste/undo/redo all work this way, since macOS has no
+lighter-weight public API for most of them. Posting synthetic keyboard events
+system-wide is squarely what macOS's Accessibility gating covers, so all 14
+are classified accordingly — this matches the task spec's own worked example
+(`mission_control` → `ACCESSIBILITY`).
+
+**Play/Pause reviewed (TASK-006 requirement):** the media-key `CGEvent`
+mechanism predates this task, but it previously always reported success
+regardless of whether Accessibility was actually granted. It's now correctly
+classified as `ACCESSIBILITY`, and `ActionRegistry` checks real trust
+(`AXIsProcessTrusted()`) *before* attempting it — if not granted, it now
+honestly returns an error ack instead of a false "ok".
+
+**Accessibility-gated actions fail safely, always** (verified by unit tests,
+not just claimed): if Accessibility isn't trusted, `ActionRegistry.canExecute`
+returns false *before* the controller method is ever called — no crash, a
+clean error ack, the BLE connection stays healthy, and every unrelated (or
+subsequent) command keeps working normally. Nothing in this codebase calls
+`AXIsProcessTrustedWithOptions` with the prompt option — permission is never
+requested automatically, and repeated attempts never escalate to a prompt.
+
+**Unavailable-app behavior:** `open_vscode`/`open_spotify`/any app-launch
+action looks up the app by bundle identifier via `NSWorkspace`; if it isn't
+installed, the lookup returns `nil`, the handler returns `false`, and the ack
+is a clean `error` — never a crash, never a fallback path.
+
+**`open_browser` uses the real default browser** — `NSWorkspace`'s
+`urlForApplication(toOpen:)` asks LaunchServices which app is registered for
+the `https` scheme, so this works correctly whether the user's default is
+Safari, Chrome, Firefox, Arc, or anything else, without ever hardcoding one.
+
+**Known reliability caveat:** `show_desktop` (F11) and `mission_control`
+(⌃↑) simulate macOS's *shipped default* keyboard shortcuts for those
+features. If a user has remapped their own Mission Control shortcuts in
+System Settings, these two actions won't do anything (no crash — the
+keystroke is still delivered, just to a shortcut that no longer means
+anything) — documented here as a known limitation rather than solved with a
+heavier API.
+
+**No shutdown/restart/logout** exist anywhere in the library, per the task's
+explicit scope — `sleep` is the only `CONFIRM`-level action, and the
+temporary Android Actions screen (below) actually gates it behind a
+confirmation dialog, not just metadata that goes unused.
+
+**Windows plug-in path:** a future Windows agent implements the exact same
+action ID strings against its own OS APIs — nothing on the Android side or
+in the protocol needs to change. `Platform.WINDOWS` already exists in the
+metadata today specifically so the tablet app doesn't need another change
+when that agent arrives; it just starts showing the Windows-relevant subset
+once a Windows connection exists.
 
 Defined identically in [`AliControlCommands.kt`](android/app/src/main/java/com/alicontrol/app/ble/AliControlCommands.kt)
-and [`AliControlCommands.swift`](macos/Sources/AliControlMac/Protocol/AliControlCommands.swift).
+and [`AliControlAction.swift`](macos/Sources/AliControlMac/Protocol/AliControlActions.swift)
+(renamed from `AliControlCommand` as part of this task's refactor — an
+internal Swift type name, not part of the wire protocol, so the rename has
+no compatibility impact).
 
 ## Android
 
@@ -179,13 +296,24 @@ and [`AliControlCommands.swift`](macos/Sources/AliControlMac/Protocol/AliControl
 
 The home screen has no app branding/title — just connection state (device
 name when connected, or disconnected/scanning/**preparing**/connecting/error
-otherwise), a small ⚙ button that opens **Device/Settings**, and five control
-cards: **Volume Up, Volume Down, Mute, Play / Pause, Terminal**. The cards are
+otherwise), a small ⚙ button that opens **Device/Settings**, a **More** button
+that opens the new **Actions** screen, and the original five control cards:
+**Volume Up, Volume Down, Mute, Play / Pause, Terminal**. The cards are
 visibly dimmed and disabled whenever nothing is connected (TASK-005); tapping
 one with nothing connected still shows a lightweight toast as a second line
 of defense. `ConnectActivity` is the separate scan/connect flow (unchanged
 from TASK-002). Tablet-local stats (battery/brightness/volume) stay off this
 screen — they live only in Device/Settings.
+
+**Actions screen (TASK-006, temporary):** `ActionsActivity` lists every
+action from `ActionLibrary` that supports macOS, grouped by category, built
+at runtime by iterating the registry rather than hand-authored per action —
+that's the whole point of having structured metadata. Rows reuse the
+existing plain-row style already used for the BLE device list; there's no
+new design system here on purpose. Tapping a `SAFE` action sends it
+immediately; tapping `sleep` (the only `CONFIRM` action) shows an
+`AlertDialog` first. **This is explicitly not the final UI** — TASK-007 is
+where a real customizable, drag/drop-free-but-designed layout replaces it.
 
 ### Kiosk / immersive fullscreen
 
@@ -423,25 +551,20 @@ nothing to click, nothing to poll for readiness.
 |---|---|---|
 | **Bluetooth** (`NSBluetoothAlwaysUsageDescription`) | `CBPeripheralManager` needs it to advertise/accept connections at all | macOS prompts automatically the first time the app runs; declared in the bundle's real `Contents/Info.plist` (see packaging above — no longer a linker-embedded workaround) |
 
-Bluetooth-only, as preferred. **Accessibility is not requested anywhere in
-this code** (no `AXIsProcessTrustedWithOptions` call, no `AXUIElement`
-usage). Volume/mute use the built-in `set volume`/`get volume settings`
-AppleScript commands, which the OS handles directly rather than routing
-through another app — no Automation permission either. `open_terminal` uses
-`NSWorkspace`, which is unprivileged. `Open at Login`'s `SMAppService` needs
-no extra entitlement or usage-description key for the `mainApp` variant used
-here.
+Bluetooth-only at the *system-permission* level, as preferred — there is
+exactly one `NSUsageDescription` key in `Info.plist`. **Accessibility is
+never requested anywhere in this code** (no `AXIsProcessTrustedWithOptions`
+call, no `AXUIElement` usage) — `AccessibilityChecker` only ever *reads*
+`AXIsProcessTrusted()`. `Open at Login`'s `SMAppService` needs no extra
+entitlement or usage-description key for the `mainApp` variant used here.
 
-`play_pause` posts a synthetic system-defined (media-key) `CGEvent` — a
-public, documented mechanism, not the private Accessibility API — but on some
-macOS versions the OS still requires Accessibility trust before it will
-actually deliver a posted `CGEvent` system-wide. This agent does not
-proactively request that permission and never opens System Settings on the
-user's behalf; if Play/Pause has no effect, granting Accessibility to the
-agent manually is the first thing to check. **Every other control (volume,
-mute, Terminal, and the BLE connection itself) is completely unaffected**
-either way — this is the only feature with any Accessibility dependency, and
-it degrades gracefully rather than blocking anything else.
+14 of the 27 actions (see the action library table above) *behave*
+differently depending on whether the user has separately granted
+Accessibility to this app in System Settings — volume/mute/lock/sleep/app
+launches are entirely unaffected either way. If Accessibility isn't granted,
+those 14 fail with a clean error ack instead of doing nothing silently or
+crashing; granting Accessibility to the agent manually (this app never asks)
+is what to check if e.g. Screenshot or Copy has no effect.
 
 ### Logging
 
@@ -487,24 +610,40 @@ same room:
 5. Confirm Android reaches a true **Connected** state (not stuck on
    "Preparing…") and the macOS menu bar icon reaches ●, showing the tablet's
    identifier.
-6. Test **Volume Up**, **Volume Down**, **Mute**, **Play/Pause** (see the
-   Accessibility caveat above if it has no effect), and **Terminal**.
-7. Force-quit `AliControlMac.app` (or use its Quit menu item) — confirm
-   Android detects the disconnect immediately (no stale "Connected").
-8. Relaunch the Mac app — confirm Android can reconnect (either the bounded
-   auto-reconnect kicks in, or a manual Connect works) without restarting the
-   tablet app.
-9. Toggle Mac Bluetooth off and back on — confirm advertising recovers on its
-   own.
-10. Toggle tablet Bluetooth off and on — confirm Android recovers cleanly.
-11. Reboot the tablet — confirm Ali Control still launches on boot.
-12. If "Open at Login" is enabled, restart the Mac and confirm
+6. Test the original five: **Volume Up**, **Volume Down**, **Mute**,
+   **Play/Pause** (see the Accessibility caveat above if it has no effect),
+   and **Terminal**.
+7. On Android, tap **More** to open the Actions screen and test the rest —
+   in roughly ascending risk order, **saving Sleep for last** since it
+   interrupts the session:
+   Next Track, Previous Track, Lock Screen, Display Sleep, Screenshot, Show
+   Desktop, Spotlight, Mission Control, VS Code, Finder, Browser (confirm it
+   opens the *actual* default browser, not a hardcoded one), Spotify, System
+   Settings, Activity Monitor, Minimize Window, Close Window (confirm the
+   app itself stays running), Fullscreen Toggle, Copy, Paste, Undo, Redo,
+   and finally Sleep (confirm the confirmation dialog appears first).
+8. Verify an unavailable-app action (e.g. VS Code or Spotify if not
+   installed on the test Mac) fails safely — a clean error toast, no crash.
+9. Temporarily revoke Accessibility for `AliControlMac.app` (System Settings
+   → Privacy & Security → Accessibility) and confirm an Accessibility-gated
+   action (e.g. Copy) fails cleanly with an error ack, while Volume Up right
+   after it still works — then re-grant and confirm Copy works again.
+10. Force-quit `AliControlMac.app` (or use its Quit menu item) — confirm
+    Android detects the disconnect immediately (no stale "Connected").
+11. Relaunch the Mac app — confirm Android can reconnect (either the bounded
+    auto-reconnect kicks in, or a manual Connect works) without restarting
+    the tablet app.
+12. Toggle Mac Bluetooth off and back on — confirm advertising recovers on
+    its own.
+13. Toggle tablet Bluetooth off and on — confirm Android recovers cleanly.
+14. Reboot the tablet — confirm Ali Control still launches on boot.
+15. If "Open at Login" is enabled, restart the Mac and confirm
     `AliControlMac.app` launches automatically.
-13. Confirm no Terminal or Xcode process is needed anywhere in the above.
-14. Open Activity Monitor while idle (nothing being pressed) — confirm CPU
+16. Confirm no Terminal or Xcode process is needed anywhere in the above.
+17. Open Activity Monitor while idle (nothing being pressed) — confirm CPU
     usage is effectively idle and memory usage is reasonable for a menu-bar
     helper.
-15. On Android: open Device/Settings and exercise every control (brightness,
+18. On Android: open Device/Settings and exercise every control (brightness,
     tablet volume, battery, Wi-Fi/Bluetooth settings entry, keep-awake), the
     development escape hatch, and returning from Android Settings — confirm
     no crash anywhere.
@@ -524,10 +663,18 @@ following still need the real tablet and a real Mac together to confirm:
   (not Developer-ID-signed) local build, and whether the app truly relaunches
   after an actual reboot — never invoked during implementation, since that
   would modify real login-item system state.
-- Whether `play_pause`'s synthetic media-key event needs Accessibility
-  permission on this specific Mac/macOS version — degrades gracefully either
-  way, but the actual system effect can only be confirmed by looking at the
-  Mac.
+- Whether any of the 14 Accessibility-gated actions actually need it on this
+  specific Mac/macOS version — all degrade gracefully either way (unit-tested
+  as the *logic* being correct), but the real system effect of e.g.
+  Screenshot or Fullscreen Toggle can only be confirmed by looking at the Mac.
+- Whether `show_desktop` (F11) and `mission_control` (⌃↑) actually trigger
+  those features on the test Mac, given they depend on the user not having
+  remapped the shipped-default Mission Control shortcuts.
+- Whether `open_vscode`/`open_spotify` correctly fail safely (vs. correctly
+  succeed) depends on what's actually installed on the specific test Mac —
+  both paths are unit-tested, but only one is exercised on any given machine.
+- Whether `open_browser` actually launches the currently-configured default
+  browser (not just *a* browser) on the test Mac.
 - Whether the real `.app` bundle's `NSBluetoothAlwaysUsageDescription` is
   picked up correctly by TCC on first launch (expected, now that it's a
   proper bundle rather than the old linker-embedded workaround, but
