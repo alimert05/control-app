@@ -3,13 +3,11 @@
     <string name="app_name">Ali Control</string>
     <string name="app_title">ALI CONTROL</string>
 
-    <string name="label_connection">CONNECTION</string>
-    <string name="label_battery">BATTERY</string>
-    <string name="label_volume">VOLUME</string>
-    <string name="label_brightness">BRIGHTNESS</string>
-
     <string name="status_disconnected">No device connected</string>
-    <string name="value_placeholder">--</string>
+
+    <string name="action_connect">Connect</string>
+    <string name="action_disconnect">Disconnect</string>
+    <string name="action_close">Close</string>
 
     <string name="section_media">Media</string>
     <string name="section_pc">PC</string>
@@ -18,4 +16,15 @@
     <string name="section_settings">Settings</string>
 
     <string name="section_coming_soon">%1$s — coming soon</string>
+
+    <string name="connect_screen_title">Connect to Ali Control</string>
+    <string name="scanning_message">Scanning for Ali Control devices…</string>
+    <string name="connecting_to_device">Connecting to %1$s…</string>
+    <string name="connect_failed">Couldn\'t connect: %1$s</string>
+    <string name="bluetooth_unsupported">This device does not support Bluetooth Low Energy</string>
+    <string name="bluetooth_disabled_message">Bluetooth is turned off</string>
+    <string name="action_enable_bluetooth">Enable Bluetooth</string>
+    <string name="permission_required_message">Location permission is required to scan for Bluetooth devices</string>
+    <string name="action_grant_permission">Grant permission</string>
+    <string name="action_scan_again">Scan again</string>
 </resources>

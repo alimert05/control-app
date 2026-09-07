@@ -2,8 +2,13 @@ package com.alicontrol.app.transport
 
 /**
  * Common contract for a communication channel between this tablet and a desktop
- * agent. No implementation exists yet — Bluetooth, USB and Wi-Fi transports are
- * built in later tasks against this same interface.
+ * agent. [BluetoothTransport] is the first implementation (TASK-002); future
+ * USB and Wi-Fi transports plug in the same way without any change to the
+ * code that only talks to this interface (e.g. the main UI).
+ *
+ * Acquiring a connection (scanning, picking a target device) is inherently
+ * transport-specific and is therefore NOT part of this interface — see
+ * [BluetoothTransport] for BLE scanning/connect-to-device.
  */
 interface Transport {
 
@@ -11,7 +16,12 @@ interface Transport {
 
     val isConnected: Boolean
 
-    fun connect(listener: TransportListener)
+    /** Human-readable name of the currently connected remote, if any. */
+    val remoteName: String?
+
+    fun addListener(listener: TransportListener)
+
+    fun removeListener(listener: TransportListener)
 
     fun disconnect()
 

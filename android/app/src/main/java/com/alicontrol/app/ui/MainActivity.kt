@@ -1,28 +1,26 @@
 package com.alicontrol.app.ui
 
+import android.content.Intent
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.alicontrol.app.AliControlApp
 import com.alicontrol.app.R
 import com.alicontrol.app.databinding.ActivityMainBinding
-import com.alicontrol.app.device.DeviceInfoProvider
+import com.alicontrol.app.transport.TransportListener
 import com.alicontrol.app.transport.TransportManager
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private lateinit var deviceInfo: DeviceInfoProvider
-    private val transportManager = TransportManager()
+    private lateinit var transportManager: TransportManager
 
-    private val refreshHandler = Handler(Looper.getMainLooper())
-    private val refreshRunnable = object : Runnable {
-        override fun run() {
-            refreshStatus()
-            refreshHandler.postDelayed(this, STATUS_REFRESH_MS)
-        }
+    private val transportListener = object : TransportListener {
+        override fun onConnected() = refreshStatus()
+        override fun onDisconnected() = refreshStatus()
+        override fun onDataReceived(data: ByteArray) = Unit
+        override fun onError(message: String) = refreshStatus()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -30,19 +28,27 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        deviceInfo = DeviceInfoProvider(applicationContext)
+        transportManager = (application as AliControlApp).transportManager
+
         setupSectionCards()
+        binding.connectButton.setOnClickListener {
+            startActivity(Intent(this, ConnectActivity::class.java))
+        }
+        binding.disconnectButton.setOnClickListener {
+            transportManager.bluetooth.disconnect()
+        }
     }
 
     override fun onResume() {
         super.onResume()
         applyImmersiveMode()
-        refreshHandler.post(refreshRunnable)
+        transportManager.bluetooth.addListener(transportListener)
+        refreshStatus()
     }
 
     override fun onPause() {
         super.onPause()
-        refreshHandler.removeCallbacks(refreshRunnable)
+        transportManager.bluetooth.removeListener(transportListener)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -63,16 +69,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshStatus() {
+        val connected = transportManager.isConnected
+        val deviceName = transportManager.bluetooth.remoteName
+
+        binding.deviceNameValue.text = deviceName.orEmpty()
+        binding.deviceNameValue.visibility = if (connected && !deviceName.isNullOrBlank()) View.VISIBLE else View.GONE
+
         binding.connectionStatusValue.text = transportManager.statusText()
 
-        val battery = deviceInfo.batteryPercent()
-        binding.batteryValue.text = if (battery >= 0) "$battery%" else getString(R.string.value_placeholder)
-
-        val volume = deviceInfo.volumePercent()
-        binding.volumeValue.text = if (volume >= 0) "$volume%" else getString(R.string.value_placeholder)
-
-        val brightness = deviceInfo.brightnessPercent()
-        binding.brightnessValue.text = if (brightness >= 0) "$brightness%" else getString(R.string.value_placeholder)
+        binding.connectButton.visibility = if (connected) View.GONE else View.VISIBLE
+        binding.disconnectButton.visibility = if (connected) View.VISIBLE else View.GONE
     }
 
     private fun setupSectionCards() {
@@ -86,9 +92,5 @@ class MainActivity : AppCompatActivity() {
         binding.cardDev.setOnClickListener(placeholder)
         binding.cardDevice.setOnClickListener(placeholder)
         binding.cardSettings.setOnClickListener(placeholder)
-    }
-
-    companion object {
-        private const val STATUS_REFRESH_MS = 5000L
     }
 }
