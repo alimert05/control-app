@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ali Control</string>
+    <string name="app_title">ALI CONTROL</string>
+
+    <string name="label_connection">CONNECTION</string>
+    <string name="label_battery">BATTERY</string>
+    <string name="label_volume">VOLUME</string>
+    <string name="label_brightness">BRIGHTNESS</string>
+
+    <string name="status_disconnected">No device connected</string>
+    <string name="value_placeholder">--</string>
+
+    <string name="section_media">Media</string>
+    <string name="section_pc">PC</string>
+    <string name="section_dev">Dev</string>
+    <string name="section_device">Device</string>
+    <string name="section_settings">Settings</string>
+
+    <string name="section_coming_soon">%1$s — coming soon</string>
+</resources>
