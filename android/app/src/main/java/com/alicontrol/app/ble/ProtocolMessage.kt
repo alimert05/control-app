@@ -41,11 +41,19 @@ data class ProtocolMessage(
             fromJson(String(data, StandardCharsets.UTF_8))
 
         fun fromJson(json: String): ProtocolMessage? {
-            val type = extractField(json, "type") ?: return null
+            val trimmed = json.trim()
+            // Reject anything that isn't a complete, closed object up front —
+            // otherwise a truncated payload (e.g. cut short by BLE MTU limits
+            // mid-transmission) can still "successfully" parse as long as the
+            // first field it contains happens to be well-formed, silently
+            // hiding real transport-level corruption instead of failing safely.
+            if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null
+
+            val type = extractField(trimmed, "type") ?: return null
             return ProtocolMessage(
                 type = type,
-                action = extractField(json, "action"),
-                status = extractField(json, "status")
+                action = extractField(trimmed, "action"),
+                status = extractField(trimmed, "status")
             )
         }
 

@@ -175,7 +175,15 @@ class BluetoothTransport(context: Context) : Transport {
 
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             when (newState) {
-                BluetoothProfile.STATE_CONNECTED -> g.discoverServices()
+                // Negotiate a larger ATT MTU before touching services. The
+                // default (23, i.e. 20 usable bytes per write/notification)
+                // silently truncates every protocol message — they're all
+                // 30+ bytes — which is what used to make every command
+                // arrive on macOS as unparseable garbage. discoverServices()
+                // runs from onMtuChanged(), not here, so the two GATT
+                // operations never overlap (BluetoothGatt only tolerates one
+                // outstanding operation at a time).
+                BluetoothProfile.STATE_CONNECTED -> g.requestMtu(DESIRED_MTU)
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     val wasConnected = connectionState == ConnectionState.CONNECTED
                     clearConnectTimeout()
@@ -187,6 +195,13 @@ class BluetoothTransport(context: Context) : Transport {
                     if (wasConnected) notifyDisconnected() else notifyError("Failed to connect")
                 }
             }
+        }
+
+        override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
+            // Proceed regardless of the negotiated result (or a failure) —
+            // even the pre-negotiation default still lets service discovery
+            // itself work; only large writes/notifications were at risk.
+            g.discoverServices()
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
@@ -254,5 +269,14 @@ class BluetoothTransport(context: Context) : Transport {
     companion object {
         private const val SCAN_TIMEOUT_MS = 10_000L
         private const val CONNECT_TIMEOUT_MS = 15_000L
+
+        /**
+         * Requested ATT MTU. 185 is a conservative, broadly-supported value
+         * (well within what Bluetooth 4.0+ controllers negotiate) that still
+         * leaves comfortable headroom over the protocol's longest message
+         * (~43 bytes for the longest command today). The framework clamps to
+         * whatever the peripheral actually supports if it's less.
+         */
+        private const val DESIRED_MTU = 185
     }
 }

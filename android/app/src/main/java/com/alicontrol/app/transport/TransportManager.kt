@@ -10,10 +10,4 @@ import android.content.Context
 class TransportManager(context: Context) {
 
     val bluetooth: BluetoothTransport = BluetoothTransport(context.applicationContext)
-
-    val isConnected: Boolean
-        get() = bluetooth.isConnected
-
-    fun statusText(): String =
-        if (bluetooth.isConnected) "Connected" else "No device connected"
 }

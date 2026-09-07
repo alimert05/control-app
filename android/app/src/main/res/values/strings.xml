@@ -1,21 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Ali Control</string>
-    <string name="app_title">ALI CONTROL</string>
 
     <string name="status_disconnected">No device connected</string>
+    <string name="status_scanning">Scanning…</string>
+    <string name="status_connecting">Connecting…</string>
+    <string name="status_connected">Connected</string>
+    <string name="status_connection_error">Connection error: %1$s</string>
 
     <string name="action_connect">Connect</string>
     <string name="action_disconnect">Disconnect</string>
     <string name="action_close">Close</string>
 
-    <string name="section_media">Media</string>
-    <string name="section_pc">PC</string>
-    <string name="section_dev">Dev</string>
-    <string name="section_device">Device</string>
-    <string name="section_settings">Settings</string>
+    <string name="action_volume_up">Volume Up</string>
+    <string name="action_volume_down">Volume Down</string>
+    <string name="action_mute">Mute</string>
+    <string name="action_play_pause">Play / Pause</string>
+    <string name="action_open_terminal">Terminal</string>
 
-    <string name="section_coming_soon">%1$s — coming soon</string>
+    <string name="error_not_connected">Connect to a computer first</string>
+    <string name="mac_ack_format">%1$s: %2$s</string>
 
     <string name="connect_screen_title">Connect to Ali Control</string>
     <string name="scanning_message">Scanning for Ali Control devices…</string>

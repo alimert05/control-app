@@ -22,16 +22,9 @@
             android:orientation="vertical">
 
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/app_title"
-                style="@style/Text.Title" />
-
-            <TextView
                 android:id="@+id/deviceNameValue"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:visibility="gone"
@@ -82,13 +75,15 @@
         android:layout_marginTop="18dp"
         android:orientation="horizontal">
 
+        <!-- android:tag on each card is the protocol action from AliControlCommands. -->
+
         <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardMedia"
+            android:id="@+id/cardVolumeUp"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:layout_marginEnd="12dp"
-            android:tag="@string/section_media"
+            android:tag="volume_up"
             android:clickable="true"
             android:focusable="true"
             app:cardBackgroundColor="@color/surface"
@@ -102,17 +97,17 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:gravity="center"
-                android:text="@string/section_media"
+                android:text="@string/action_volume_up"
                 style="@style/Text.SectionLabel" />
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardPc"
+            android:id="@+id/cardVolumeDown"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:layout_marginEnd="12dp"
-            android:tag="@string/section_pc"
+            android:tag="volume_down"
             android:clickable="true"
             android:focusable="true"
             app:cardBackgroundColor="@color/surface"
@@ -126,17 +121,17 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:gravity="center"
-                android:text="@string/section_pc"
+                android:text="@string/action_volume_down"
                 style="@style/Text.SectionLabel" />
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardDev"
+            android:id="@+id/cardMute"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:layout_marginEnd="12dp"
-            android:tag="@string/section_dev"
+            android:tag="mute_toggle"
             android:clickable="true"
             android:focusable="true"
             app:cardBackgroundColor="@color/surface"
@@ -150,17 +145,17 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:gravity="center"
-                android:text="@string/section_dev"
+                android:text="@string/action_mute"
                 style="@style/Text.SectionLabel" />
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardDevice"
+            android:id="@+id/cardPlayPause"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:layout_marginEnd="12dp"
-            android:tag="@string/section_device"
+            android:tag="play_pause"
             android:clickable="true"
             android:focusable="true"
             app:cardBackgroundColor="@color/surface"
@@ -174,16 +169,16 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:gravity="center"
-                android:text="@string/section_device"
+                android:text="@string/action_play_pause"
                 style="@style/Text.SectionLabel" />
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardSettings"
+            android:id="@+id/cardOpenTerminal"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:tag="@string/section_settings"
+            android:tag="open_terminal"
             android:clickable="true"
             android:focusable="true"
             app:cardBackgroundColor="@color/surface"
@@ -197,7 +192,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:gravity="center"
-                android:text="@string/section_settings"
+                android:text="@string/action_open_terminal"
                 style="@style/Text.SectionLabel" />
         </com.google.android.material.card.MaterialCardView>
 

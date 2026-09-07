@@ -7,7 +7,9 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.alicontrol.app.AliControlApp
 import com.alicontrol.app.R
+import com.alicontrol.app.ble.ProtocolMessage
 import com.alicontrol.app.databinding.ActivityMainBinding
+import com.alicontrol.app.transport.BluetoothTransport
 import com.alicontrol.app.transport.TransportListener
 import com.alicontrol.app.transport.TransportManager
 
@@ -16,11 +18,29 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var transportManager: TransportManager
 
+    /** Last BLE error, shown alongside the disconnected state until the next connect attempt. */
+    private var lastErrorMessage: String? = null
+
     private val transportListener = object : TransportListener {
-        override fun onConnected() = refreshStatus()
+        override fun onConnected() {
+            lastErrorMessage = null
+            refreshStatus()
+        }
+
         override fun onDisconnected() = refreshStatus()
-        override fun onDataReceived(data: ByteArray) = Unit
-        override fun onError(message: String) = refreshStatus()
+
+        override fun onDataReceived(data: ByteArray) {
+            val message = ProtocolMessage.fromBytes(data) ?: return
+            if (message.type != ProtocolMessage.TYPE_STATE) return
+            val action = message.action ?: return
+            val status = message.status ?: return
+            Toast.makeText(this@MainActivity, getString(R.string.mac_ack_format, action, status), Toast.LENGTH_SHORT).show()
+        }
+
+        override fun onError(message: String) {
+            lastErrorMessage = message
+            refreshStatus()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -30,7 +50,7 @@ class MainActivity : AppCompatActivity() {
 
         transportManager = (application as AliControlApp).transportManager
 
-        setupSectionCards()
+        setupControlCards()
         binding.connectButton.setOnClickListener {
             startActivity(Intent(this, ConnectActivity::class.java))
         }
@@ -69,28 +89,46 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshStatus() {
-        val connected = transportManager.isConnected
-        val deviceName = transportManager.bluetooth.remoteName
+        val bluetooth = transportManager.bluetooth
+        val connected = bluetooth.isConnected
+        val deviceName = bluetooth.remoteName
 
         binding.deviceNameValue.text = deviceName.orEmpty()
         binding.deviceNameValue.visibility = if (connected && !deviceName.isNullOrBlank()) View.VISIBLE else View.GONE
 
-        binding.connectionStatusValue.text = transportManager.statusText()
+        binding.connectionStatusValue.text = statusText(bluetooth.connectionState)
 
         binding.connectButton.visibility = if (connected) View.GONE else View.VISIBLE
         binding.disconnectButton.visibility = if (connected) View.VISIBLE else View.GONE
     }
 
-    private fun setupSectionCards() {
-        val placeholder = View.OnClickListener { view ->
-            val label = view.tag as? String ?: return@OnClickListener
-            Toast.makeText(this, getString(R.string.section_coming_soon, label), Toast.LENGTH_SHORT).show()
+    private fun statusText(state: BluetoothTransport.ConnectionState): String = when (state) {
+        BluetoothTransport.ConnectionState.CONNECTED -> getString(R.string.status_connected)
+        BluetoothTransport.ConnectionState.CONNECTING -> getString(R.string.status_connecting)
+        BluetoothTransport.ConnectionState.SCANNING -> getString(R.string.status_scanning)
+        BluetoothTransport.ConnectionState.DISCONNECTED -> {
+            val error = lastErrorMessage
+            if (error != null) getString(R.string.status_connection_error, error) else getString(R.string.status_disconnected)
         }
+    }
 
-        binding.cardMedia.setOnClickListener(placeholder)
-        binding.cardPc.setOnClickListener(placeholder)
-        binding.cardDev.setOnClickListener(placeholder)
-        binding.cardDevice.setOnClickListener(placeholder)
-        binding.cardSettings.setOnClickListener(placeholder)
+    private fun setupControlCards() {
+        val listener = View.OnClickListener { view ->
+            val action = view.tag as? String ?: return@OnClickListener
+            sendCommand(action)
+        }
+        binding.cardVolumeUp.setOnClickListener(listener)
+        binding.cardVolumeDown.setOnClickListener(listener)
+        binding.cardMute.setOnClickListener(listener)
+        binding.cardPlayPause.setOnClickListener(listener)
+        binding.cardOpenTerminal.setOnClickListener(listener)
+    }
+
+    private fun sendCommand(action: String) {
+        if (!transportManager.bluetooth.isConnected) {
+            Toast.makeText(this, R.string.error_not_connected, Toast.LENGTH_SHORT).show()
+            return
+        }
+        transportManager.bluetooth.send(ProtocolMessage.command(action).toBytes())
     }
 }

@@ -64,4 +64,13 @@ class ProtocolMessageTest {
         val decoded = ProtocolMessage.fromJson(original.toJson())
         assertEquals(original, decoded)
     }
+
+    @Test
+    fun ackStateEchoesActionAlongsideStatus() {
+        val original = ProtocolMessage(type = ProtocolMessage.TYPE_STATE, action = AliControlCommands.VOLUME_UP, status = "ok")
+        val decoded = ProtocolMessage.fromJson(original.toJson())
+        assertEquals(original, decoded)
+        assertEquals("ok", decoded?.status)
+        assertEquals(AliControlCommands.VOLUME_UP, decoded?.action)
+    }
 }
