@@ -6,23 +6,16 @@ let package = Package(
     platforms: [.macOS(.v13)],
     targets: [
         // A menu-bar helper, not a library — there's nothing else in this
-        // repo that needs to depend on it.
+        // repo that needs to depend on it. `swift build`/`swift run` still
+        // work for fast iteration and are what `swift test` uses, but the
+        // supported way to actually run the app is the real bundle produced
+        // by Scripts/build_app.sh (AliControlMac.app), which carries its own
+        // proper Info.plist — this target no longer embeds one via a linker
+        // trick, since the bare executable is a development convenience now,
+        // not the shipped artifact.
         .executableTarget(
             name: "AliControlMac",
-            path: "Sources/AliControlMac",
-            linkerSettings: [
-                // Embeds Info.plist directly into the executable's __TEXT
-                // segment. A plain SPM executable has no app bundle (and
-                // therefore no Info.plist) by default, but CoreBluetooth
-                // still looks one up to find NSBluetoothAlwaysUsageDescription
-                // before it will allow CBPeripheralManager to be used.
-                .unsafeFlags([
-                    "-Xlinker", "-sectcreate",
-                    "-Xlinker", "__TEXT",
-                    "-Xlinker", "__info_plist",
-                    "-Xlinker", "Info.plist"
-                ])
-            ]
+            path: "Sources/AliControlMac"
         ),
         .testTarget(
             name: "AliControlMacTests",

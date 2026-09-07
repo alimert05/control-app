@@ -36,6 +36,16 @@ android {
     buildFeatures {
         viewBinding true
     }
+
+    lint {
+        // ExpiredTargetSdkVersion is a Google Play submission gate (Play
+        // requires targetSdk 31+). This app is never distributed via Play —
+        // it's sideloaded onto one specific Android 8.1 tablet, and
+        // targetSdk 27 is a deliberate, project-wide requirement (see
+        // README.md / TASKS.md), not an oversight. Everything else lint
+        // finds still applies.
+        disable 'ExpiredTargetSdkVersion'
+    }
 }
 
 dependencies {

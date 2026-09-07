@@ -104,10 +104,13 @@ class MainActivity : AppCompatActivity() {
 
         binding.connectButton.visibility = if (connected) View.GONE else View.VISIBLE
         binding.disconnectButton.visibility = if (connected) View.VISIBLE else View.GONE
+
+        setControlCardsEnabled(connected)
     }
 
     private fun statusText(state: BluetoothTransport.ConnectionState): String = when (state) {
         BluetoothTransport.ConnectionState.CONNECTED -> getString(R.string.status_connected)
+        BluetoothTransport.ConnectionState.PREPARING -> getString(R.string.status_preparing)
         BluetoothTransport.ConnectionState.CONNECTING -> getString(R.string.status_connecting)
         BluetoothTransport.ConnectionState.SCANNING -> getString(R.string.status_scanning)
         BluetoothTransport.ConnectionState.DISCONNECTED -> {
@@ -126,6 +129,15 @@ class MainActivity : AppCompatActivity() {
         binding.cardMute.setOnClickListener(listener)
         binding.cardPlayPause.setOnClickListener(listener)
         binding.cardOpenTerminal.setOnClickListener(listener)
+    }
+
+    /** Visually dims and disables the command cards when nothing is connected — sendCommand() still guards too. */
+    private fun setControlCardsEnabled(enabled: Boolean) {
+        val alpha = if (enabled) 1f else 0.4f
+        for (card in listOf(binding.cardVolumeUp, binding.cardVolumeDown, binding.cardMute, binding.cardPlayPause, binding.cardOpenTerminal)) {
+            card.isEnabled = enabled
+            card.alpha = alpha
+        }
     }
 
     private fun sendCommand(action: String) {

@@ -5,6 +5,7 @@
     <string name="status_disconnected">No device connected</string>
     <string name="status_scanning">Scanning…</string>
     <string name="status_connecting">Connecting…</string>
+    <string name="status_preparing">Preparing…</string>
     <string name="status_connected">Connected</string>
     <string name="status_connection_error">Connection error: %1$s</string>
 

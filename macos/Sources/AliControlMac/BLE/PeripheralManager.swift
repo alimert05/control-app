@@ -9,6 +9,12 @@ import Foundation
 /// nothing about JSON or macOS actions — it decodes bytes into a
 /// `ProtocolMessage` and hands it to `CommandDispatcher`, then encodes
 /// whatever comes back and notifies it.
+///
+/// Startup is fully automatic and event-driven: `init` creates the
+/// `CBPeripheralManager` immediately, and `peripheralManagerDidUpdateState`
+/// registers the service and starts advertising itself the moment Bluetooth
+/// reports `.poweredOn` — there is no "Start Server" step and no polling for
+/// readiness.
 final class PeripheralManager: NSObject {
 
     /// Local, in-process status for the menu bar UI. Never sent over BLE —
@@ -30,6 +36,11 @@ final class PeripheralManager: NSObject {
             onStatusChanged?(status)
         }
     }
+
+    /// CoreBluetooth's peripheral role exposes no friendly name for a
+    /// connected central (`CBCentral` has no `.name`) — this is its
+    /// identifier, shortened, for the menu's "Tablet: Connected (…)" line.
+    private(set) var subscribedCentralIdentifier: String?
 
     private let dispatcher: CommandDispatcher
     private var peripheralManager: CBPeripheralManager!
@@ -74,6 +85,21 @@ final class PeripheralManager: NSObject {
             CBAdvertisementDataLocalNameKey: localName
         ])
         status = .advertising
+        logDebug("advertising as \"\(localName)\"")
+    }
+
+    /// Manually restarts advertising — a lightweight recovery option (exposed
+    /// as a menu item) if it ever appears stuck, without requiring a full app
+    /// relaunch. A no-op unless Bluetooth is actually on; never loops or
+    /// retries on its own.
+    func restartAdvertising() {
+        guard peripheralManager.state == .poweredOn else { return }
+        peripheralManager.stopAdvertising()
+        if stateCharacteristic == nil {
+            addServiceIfNeeded()
+        } else {
+            startAdvertising()
+        }
     }
 
     // MARK: - Sending state/ack messages
@@ -96,9 +122,8 @@ final class PeripheralManager: NSObject {
         }
     }
 
-    /// Local stderr line for debugging — never sent over BLE. Temporary/
-    /// lightweight by design: this is a menu-bar helper, not a service with
-    /// a real logging story.
+    /// Local stderr line for debugging — never sent over BLE, and only ever
+    /// written on an actual state change/error, never on a timer or loop.
     private func logDebug(_ message: String) {
         FileHandle.standardError.write(Data("Ali Control: \(message)\n".utf8))
     }
@@ -109,16 +134,20 @@ final class PeripheralManager: NSObject {
 extension PeripheralManager: CBPeripheralManagerDelegate {
 
     func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
+        logDebug("Bluetooth state: \(peripheral.state.aliControlDescription)")
         switch peripheral.state {
         case .poweredOn:
             addServiceIfNeeded()
         case .poweredOff:
             // The system drops any previously-added services/advertisement
-            // when Bluetooth powers off — clear local state to match, so
-            // addServiceIfNeeded() re-adds everything if it powers back on
-            // instead of short-circuiting on a stale characteristic reference.
+            // when Bluetooth powers off (this also covers the Mac sleeping
+            // with Bluetooth hardware suspended) — clear local state to
+            // match, so addServiceIfNeeded() re-adds everything when it
+            // powers back on instead of short-circuiting on a stale
+            // characteristic reference.
             stateCharacteristic = nil
             subscribedCentral = nil
+            subscribedCentralIdentifier = nil
             pendingNotifications.removeAll()
             status = .poweredOff
         case .unauthorized:
@@ -143,7 +172,9 @@ extension PeripheralManager: CBPeripheralManagerDelegate {
     func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral, didSubscribeTo characteristic: CBCharacteristic) {
         guard characteristic.uuid == AliControlBleProfile.stateCharacteristicUUID else { return }
         subscribedCentral = central
+        subscribedCentralIdentifier = String(central.identifier.uuidString.prefix(8))
         status = .subscribed
+        logDebug("tablet connected (\(subscribedCentralIdentifier ?? "?"))")
         sendState(.state(status: "connected"))
     }
 
@@ -151,9 +182,11 @@ extension PeripheralManager: CBPeripheralManagerDelegate {
         guard characteristic.uuid == AliControlBleProfile.stateCharacteristicUUID else { return }
         if subscribedCentral === central {
             subscribedCentral = nil
+            subscribedCentralIdentifier = nil
         }
         pendingNotifications.removeAll()
         status = .advertising
+        logDebug("tablet disconnected")
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
@@ -189,11 +222,29 @@ extension PeripheralManager: CBPeripheralManagerDelegate {
                 sendState(.state(status: "error"))
                 continue
             }
-            sendState(dispatcher.dispatch(message))
+            let reply = dispatcher.dispatch(message)
+            if reply.status == "error" {
+                logDebug("command \"\(message.action ?? "?")\" failed")
+            }
+            sendState(reply)
         }
     }
 
     func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) {
         flushPendingNotifications()
+    }
+}
+
+private extension CBManagerState {
+    var aliControlDescription: String {
+        switch self {
+        case .poweredOn: return "poweredOn"
+        case .poweredOff: return "poweredOff"
+        case .unauthorized: return "unauthorized"
+        case .unsupported: return "unsupported"
+        case .resetting: return "resetting"
+        case .unknown: return "unknown"
+        @unknown default: return "unknown(\(rawValue))"
+        }
     }
 }
