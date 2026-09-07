@@ -31,4 +31,18 @@
     <string name="permission_required_message">Location permission is required to scan for Bluetooth devices</string>
     <string name="action_grant_permission">Grant permission</string>
     <string name="action_scan_again">Scan again</string>
+
+    <string name="action_device_settings">⚙</string>
+    <string name="device_settings_title">Device</string>
+    <string name="action_open_settings">Open Settings</string>
+    <string name="label_wifi">Wi-Fi</string>
+    <string name="label_bluetooth">Bluetooth</string>
+    <string name="label_brightness">Brightness</string>
+    <string name="label_volume">Tablet Volume</string>
+    <string name="label_keep_awake">Keep screen awake</string>
+    <string name="label_battery">Battery</string>
+    <string name="bluetooth_on">On</string>
+    <string name="bluetooth_off">Off</string>
+    <string name="percent_format">%1$d%%</string>
+    <string name="value_placeholder">--</string>
 </resources>

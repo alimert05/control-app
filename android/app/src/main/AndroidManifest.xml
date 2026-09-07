@@ -13,6 +13,19 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <!--
+      TASK-004: RECEIVE_BOOT_COMPLETED is a normal permission, granted at
+      install time on every API level — required so BootReceiver can hear
+      BOOT_COMPLETED at all.
+      WRITE_SETTINGS is a "special" permission: declaring it here does NOT
+      grant it. The user must explicitly approve it on the
+      ACTION_MANAGE_WRITE_SETTINGS system screen (see BrightnessController) —
+      it is never requested through the normal runtime-permission dialog and
+      never assumed to be granted.
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+
     <uses-feature
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
@@ -42,6 +55,26 @@
             android:exported="false"
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout" />
+
+        <activity
+            android:name=".ui.DeviceSettingsActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout" />
+
+        <!--
+          BOOT_COMPLETED is exempt from Android 8's implicit-broadcast manifest
+          restrictions, so a plain manifest-declared receiver still works here
+          without needing a foreground service or JobScheduler workaround.
+        -->
+        <receiver
+            android:name=".kiosk.BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

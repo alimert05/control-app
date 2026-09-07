@@ -9,6 +9,7 @@ import com.alicontrol.app.AliControlApp
 import com.alicontrol.app.R
 import com.alicontrol.app.ble.ProtocolMessage
 import com.alicontrol.app.databinding.ActivityMainBinding
+import com.alicontrol.app.kiosk.KioskController
 import com.alicontrol.app.transport.BluetoothTransport
 import com.alicontrol.app.transport.TransportListener
 import com.alicontrol.app.transport.TransportManager
@@ -17,6 +18,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var transportManager: TransportManager
+    private lateinit var kioskController: KioskController
 
     /** Last BLE error, shown alongside the disconnected state until the next connect attempt. */
     private var lastErrorMessage: String? = null
@@ -49,6 +51,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         transportManager = (application as AliControlApp).transportManager
+        kioskController = KioskController(this)
 
         setupControlCards()
         binding.connectButton.setOnClickListener {
@@ -57,11 +60,17 @@ class MainActivity : AppCompatActivity() {
         binding.disconnectButton.setOnClickListener {
             transportManager.bluetooth.disconnect()
         }
+        binding.deviceSettingsButton.setOnClickListener {
+            startActivity(Intent(this, DeviceSettingsActivity::class.java))
+        }
+
+        kioskController.attachEscapeHatch(binding.headerTextColumn, window)
     }
 
     override fun onResume() {
         super.onResume()
-        applyImmersiveMode()
+        kioskController.applyImmersiveMode(window)
+        kioskController.applyKeepAwake(window)
         transportManager.bluetooth.addListener(transportListener)
         refreshStatus()
     }
@@ -73,20 +82,15 @@ class MainActivity : AppCompatActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) applyImmersiveMode()
+        if (hasFocus) kioskController.applyImmersiveMode(window)
     }
 
-    private fun applyImmersiveMode() {
-        @Suppress("DEPRECATION")
-        window.decorView.systemUiVisibility = (
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                or View.SYSTEM_UI_FLAG_FULLSCREEN
-                or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-            )
-    }
+    /**
+     * Kiosk: this is the app's home screen, so back press must not exit it —
+     * use the escape hatch (long-press the connection status text) to reach
+     * Home/Recents/Settings during development instead.
+     */
+    override fun onBackPressed() = Unit
 
     private fun refreshStatus() {
         val bluetooth = transportManager.bluetooth

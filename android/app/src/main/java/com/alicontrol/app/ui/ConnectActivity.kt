@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import com.alicontrol.app.AliControlApp
 import com.alicontrol.app.R
 import com.alicontrol.app.databinding.ActivityConnectBinding
+import com.alicontrol.app.kiosk.KioskController
 import com.alicontrol.app.transport.BleScanListener
 import com.alicontrol.app.transport.TransportListener
 import com.alicontrol.app.transport.TransportManager
@@ -28,6 +29,7 @@ class ConnectActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityConnectBinding
     private lateinit var transportManager: TransportManager
+    private lateinit var kioskController: KioskController
 
     private val discovered = LinkedHashMap<String, BluetoothDevice>()
     private lateinit var adapter: ArrayAdapter<String>
@@ -80,6 +82,7 @@ class ConnectActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         transportManager = (application as AliControlApp).transportManager
+        kioskController = KioskController(this)
 
         adapter = ArrayAdapter(this, R.layout.item_ble_device, mutableListOf())
         binding.deviceList.adapter = adapter
@@ -89,16 +92,25 @@ class ConnectActivity : AppCompatActivity() {
         }
 
         binding.closeButton.setOnClickListener { finish() }
+
+        kioskController.attachEscapeHatch(binding.screenTitle, window)
     }
 
     override fun onResume() {
         super.onResume()
+        kioskController.applyImmersiveMode(window)
+        kioskController.applyKeepAwake(window)
         if (!isConnecting) startFlow()
     }
 
     override fun onPause() {
         super.onPause()
         transportManager.bluetooth.stopScan()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) kioskController.applyImmersiveMode(window)
     }
 
     override fun onDestroy() {
