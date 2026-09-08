@@ -24,16 +24,20 @@ registry (`actions/`) UI can filter/drive, and on macOS by a data-driven
 `ActionRegistry` that replaced the old growing switch statement (see
 [TASKS.md](TASKS.md)). TASK-007 replaces the temporary five-card home screen
 with a three-page, icon-forward dashboard rendered from reusable widget and
-12x8 logical-grid models, while retaining the complete Actions screen for
-manual coverage of all 27 commands.
+logical-grid models, while retaining the complete Actions screen for
+manual coverage of all 27 commands. TASK-008 turns that fixed dashboard into
+an editable one: a coarser **6x4 grid**, an explicit **Edit Mode** with
+drag/resize/add/remove, page create/rename/delete/reorder, a Daily Overview
+widget, and JSON layout persistence with Reset to Default.
 
 ## Overall architecture
 
 ```
 Android tablet (BLE central)
   ui/                      MainActivity + secondary screens
-    └─ ui/dashboard/       ViewPager2, grid/page/widget renderers
-         └─ dashboard/     UI-independent page, widget and 12x8 grid data
+    └─ ui/dashboard/       ViewPager2, grid/page/widget renderers, edit gestures
+         └─ dashboard/     UI-independent page/widget/6x4 grid data, editor,
+                           serializer and layout store
               └─ actions/  ActionLibrary metadata + shared ActionDispatcher
                    └─ transport/ + ble/
                         BluetoothTransport, protocol messages and allowlist
@@ -281,48 +285,144 @@ no compatibility impact).
 
 ### UI
 
-The home screen is now a dedicated, three-page dashboard. Its compact header
-keeps connection state, Connect/Disconnect, **Device/Settings**, and **All
-Actions** immediately reachable; `ConnectActivity` remains the separate BLE
-scan/connect flow. Horizontal swipes move between **Dashboard**, **Media**,
-and **Dev**, with the current page name and a lightweight dot indicator making
-position clear. Page count comes from the `Dashboard.pages` data rather than
-being hardcoded in `MainActivity`, so the same pager can render an arbitrary
-number of pages when TASK-008 adds page editing.
+The home screen is a dedicated, multi-page dashboard. Its compact header keeps
+connection state, **All Actions**, **Device**, **Edit**, and
+Connect/Disconnect immediately reachable; `ConnectActivity` remains the
+separate BLE scan/connect flow. Horizontal swipes move between pages, with the
+current page name and a dot indicator making position clear. All five header
+controls render through one shared `Widget.AliControl.HeaderButton` style, so
+their height, padding, corner radius, icon size, text size, and visual weight
+match by construction rather than by hand-matched attributes.
 
-`dashboard/` is a UI-independent model: each `DashboardPage` owns ordered
-`DashboardWidget` values with type, configuration, and bounds in one stable
-**12-column × 8-row logical grid**. `DefaultDashboardFactory` supplies the
-three shipped layouts as static in-memory data. `ui/dashboard/` turns that
-data into native XML/View-based pages using a small custom `ViewGroup`, a
-`ViewPager2`, and reusable card renderers—there is no Compose, database,
-continuous animation, or telemetry polling.
+#### Grid and widget model
 
-The renderer supports `ACTION`, `ACTION_GROUP`, `METRIC`, `GAUGE`, `CLOCK`,
-`MEDIA`, and `SLIDER`, plus a local-only `SHORTCUT` used for Device/Settings.
-The Dashboard page mixes CPU/GPU/RAM placeholders, a local minute-updated
-clock, media transport controls, volume/mute, Lock, Screenshot, Terminal, VS
-Code, Spotlight, and Mission Control. Media provides the full transport row,
-volume, mute, and Spotify. Dev provides VS Code, Terminal, Browser, Finder,
-Spotlight, Activity Monitor, Screenshot, System Settings, and compact system
-placeholders.
+`dashboard/` is a UI-independent model. Each `DashboardPage` owns ordered
+`DashboardWidget` values, and every widget carries a `WidgetPlacement`
+(`x`, `y`, `width`, `height`) on one stable **6-column × 4-row logical grid**.
+Those **24 cells are placement units, not 24 mandatory buttons** — pages may
+leave cells empty, and the shipped layouts simply happen to fill theirs.
+`x + width ≤ 6` and `y + height ≤ 4` always hold, and widgets never overlap.
+
+Each `WidgetType` declares its own size limits, so a widget can never be
+resized into a state where its content stops being usable:
+
+| Type | Min | Max |
+|---|---|---|
+| `ACTION` | 1×1 | 2×2 |
+| `ACTION_GROUP` | 2×1 | 6×2 |
+| `METRIC` | 1×1 | 2×2 |
+| `GAUGE` | 1×1 | 2×2 |
+| `CLOCK` | 2×1 | 4×2 |
+| `DAILY_OVERVIEW` | 3×2 | 6×4 |
+| `MEDIA` | 3×2 | 6×4 |
+| `SLIDER` | 2×1 | 6×2 |
+| `SHORTCUT` (local navigation) | 1×1 | 2×2 |
+
+Widgets render responsively for the cells they occupy: a 1×1 `ACTION` is an
+icon over a one-word label, a 2×1 puts the full label beside the icon, and a
+2×2 goes large. Text steps in size with the widget rather than shrinking until
+it is unreadable.
+
+#### Edit Mode
+
+**Edit** switches the dashboard into an explicit editing mode: subtle 6×4 grid
+guides appear, the header swaps to **Add / Pages / Done**, page swiping is
+replaced by ‹ › arrows (so horizontal drags belong to the widget being moved),
+and **no widget wires up its normal click handler at all** — a stray tap
+cannot fire a remote action while rearranging.
+
+- **Select** — tap a widget; it gains an accent border, a remove badge
+  (top-right) and a resize handle (bottom-right).
+- **Move** — drag it. The widget follows the finger via `translationX/Y` (no
+  layout pass per touch event) and a preview rectangle shows the target cells,
+  tinted by whether the drop is legal.
+- **Resize** — drag the corner handle. Sizes snap to cells and are clamped to
+  the type's min/max and the remaining space.
+- **Remove** — tap the badge. This only removes the widget from that page; it
+  never touches `ActionLibrary`, the macOS registry, or another page.
+
+Illegal drops and resizes are **rejected, not corrected**: the widget keeps
+the valid position it already had and a short message says why. All of that
+validation lives in `DashboardEditor`, a pure Kotlin object with no Android
+dependency — the view layer proposes a candidate, the model decides.
+
+**Add** opens the widget picker (Action, Action Group, Metric, Gauge, Clock,
+Daily Overview, Media, Slider, Shortcut), which labels any type that cannot
+currently fit. New widgets take their type's default size at the first free
+position scanning row-major from the top-left; nothing existing is ever moved
+or dropped to make room, and a full page reports "Not enough space".
+
+Adding an `ACTION` opens the **action picker**, generated entirely from
+`ActionLibrary` and grouped by its existing categories, showing each action's
+`ActionIconRegistry` icon plus Confirm/Accessibility badges. There is no
+free-text field anywhere in the editor: an arbitrary action id or shell string
+simply has no way in, and `DashboardEditor` rejects any id the library does
+not know.
+
+**Pages** manages pages: create (starts empty, named "New Page"), rename
+(validated non-blank, capped at 24 characters, page id preserved), move
+left/right, delete, and **Reset to Default**. The final remaining page can
+never be deleted, and deleting a page that holds widgets asks first.
+
+#### Persistence
+
+Every successful edit is serialized to JSON and stored under a single key in
+its own small `SharedPreferences` file (`dashboard_prefs`) — no Room, no SQL,
+no cloud. The document carries a `schemaVersion`, and deserialization is
+strict and total: bad JSON, an unknown schema version, an unknown widget type,
+a widget outside the grid or breaking its type's size limits, overlapping
+widgets, duplicate ids, or an action id this build does not know all return
+null, and `DashboardStore` falls back to the shipped default. A corrupted
+layout therefore degrades to "you get the defaults back", never to a crash.
+
+A stored layout always wins over the shipped default, so a future release's
+new default layout will not silently overwrite a customized dashboard.
+**Reset to Default** clears only that one key — keep-screen-awake and every
+other preference are untouched.
+
+#### Default pages
+
+`DefaultDashboardFactory` supplies three shipped pages as data (the model
+itself has no notion of "three"):
+
+- **Dashboard** — a 3×2 **Daily Overview** panel; CPU/GPU/RAM placeholders;
+  Lock, Screenshot and a Device shortcut; a row of six compact 1×1 actions
+  (Terminal, VS Code, Spotlight, Mission Control, Finder, Browser); and two
+  compact 3×1 control strips (⏮ ▶ ⏭ and Vol− Mute Vol+). The full-size media
+  player that TASK-007 put here is gone — it belongs on the Media page.
+- **Media** — the full 6×3 `MEDIA` widget, plus volume down/up, mute, Spotify
+  and a clock.
+- **Dev** — VS Code, Terminal, Browser, Spotlight, Finder, Activity Monitor,
+  Screenshot, System Settings, an All Actions shortcut, and CPU/RAM/GPU
+  placeholders.
+
+**Daily Overview** shows real local tablet time and date (updated on minute
+boundaries, never on a high-frequency timer) alongside explicit
+`Weather unavailable`, `No calendar data`, and `Next event: --` placeholders.
+No weather or calendar integration exists yet (TASK-015); showing
+plausible-looking values in the meantime would be worse than showing none.
+
+#### Actions, connection, and platform
 
 Every remote action still resolves its ID through `ActionLibrary` and is sent
-through the shared `ActionDispatcher` and existing `TransportManager`; danger
-metadata therefore still controls confirmation dialogs. Remote widgets dim
-and disable while disconnected, while metrics, the clock, and local
-Device/Settings access remain usable. The current agent is macOS, so widgets
-whose actions do not support macOS render disabled rather than being removed;
-this preserves grid geometry and can consume a future connected-platform
-signal without changing the dashboard model.
+through the shared `ActionDispatcher` and existing `TransportManager`, so
+danger metadata still controls confirmation dialogs — a `sleep` widget added
+to a custom page still asks before sending. Remote widgets dim and disable
+while disconnected, while metrics, clocks, Daily Overview and local
+Device/Settings access remain usable. **Editing works entirely offline**: it
+involves no transport at all, so the dashboard is fully customizable with the
+Mac switched off.
 
-Action icons come from one Android `ActionIconRegistry` backed entirely by
-small local vector drawables. CPU/GPU/RAM and gauge shells deliberately show
-`--`, media deliberately says `Media unavailable`, and the slider shell has
-no thumb or value: TASK-007 does not fabricate telemetry, volume state, media
-metadata, or artwork. TASK-008 can persist and edit the same page/widget/grid
-data later; TASK-007 intentionally has no editor, drag/drop, resize handles,
-picker, or layout persistence.
+The current agent is macOS, so widgets whose actions do not support the
+connected platform render **disabled and stay in the saved layout** — never
+silently removed. A future Windows agent only needs a real
+connected-platform signal in place of today's constant.
+
+Action icons come from one `ActionIconRegistry` backed entirely by small local
+vector drawables. CPU/GPU/RAM and gauge shells deliberately show `--`, media
+deliberately says `Media unavailable`, and the slider shell has no thumb or
+value: nothing here fabricates telemetry, volume state, media metadata, or
+artwork.
 
 **Actions screen (TASK-006, temporary):** `ActionsActivity` lists every
 action from `ActionLibrary` that supports macOS, grouped by category, built
@@ -331,8 +431,9 @@ that's the whole point of having structured metadata. Rows reuse the
 existing plain-row style already used for the BLE device list; there's no
 new design system here on purpose. Tapping a `SAFE` action sends it
 immediately; tapping `sleep` (the only `CONFIRM` action) shows an
-`AlertDialog` first. It remains available through **All Actions** so all 27
-actions can be tested until TASK-008 supplies an action picker.
+`AlertDialog` first. It remains available through **All Actions** — TASK-008's
+action picker covers adding actions to the dashboard, but this screen is still
+the fastest way to exercise all 27 commands in one place.
 
 ### Kiosk / immersive fullscreen
 
@@ -398,7 +499,16 @@ lives in `device/` (`BrightnessController`, `VolumeController`,
   `AudioManager` stream volume, `FLAG_KEEP_SCREEN_ON`, `SharedPreferences`,
   manifest `BOOT_COMPLETED`, `BluetoothGatt.requestMtu`/`onMtuChanged`/
   `onDescriptorWrite`, `Log`) has existed since at most API 23 — nothing in
-  this codebase requires anything newer than API 27.
+  this codebase requires anything newer than API 27. The dashboard editor adds
+  only long-standing APIs: `MotionEvent`, `ViewConfiguration.scaledTouchSlop`,
+  `View.translationX/Y`, `Canvas.drawRoundRect`, `GradientDrawable`,
+  `ImageView.imageTintList` (API 21), and `org.json`, which ships inside
+  Android itself.
+- Runtime dependencies are `androidx.core`/`appcompat`, Material Components,
+  and `androidx.viewpager2` — no drag-and-drop, dashboard, charting, or
+  database framework. `org.json:json` is a **test-only** dependency, present
+  solely because the unit-test `android.jar` stubs `org.json` out; it is not
+  in the APK.
 
 ### Permissions
 
@@ -629,12 +739,27 @@ same room:
 5. Confirm Android reaches a true **Connected** state (not stuck on
    "Preparing…") and the macOS menu bar icon reaches ●, showing the tablet's
    identifier.
-6. Verify Dashboard, Media, and Dev render correctly; swipe repeatedly through
-   them and confirm the page name/dots follow without lag or crashes.
+6. Verify Dashboard, Media, and Dev render correctly on the 6×4 grid; swipe
+   repeatedly through them and confirm the page name/dots follow without lag or
+   crashes. Confirm the Dashboard page has no full-size media player, keeps the
+   compact ⏮ ▶ ⏭ and Vol−/Mute/Vol+ strips, and shows Daily Overview with real
+   time/date and `Weather unavailable` / `No calendar data` / `Next event: --`.
+   Confirm All Actions, Device, Edit and Connect are the same height and style.
 7. Test the dashboard actions, including media transport, volume/mute, Lock,
    Screenshot, Terminal, VS Code, Spotlight, Mission Control, Spotify, Browser,
    Finder, Activity Monitor, and System Settings. Confirm CPU/GPU/RAM remain
    honest `--` placeholders and media remains `Media unavailable`.
+7b. Tap **Edit** and exercise the editor: confirm the 6×4 guides appear and
+   normal taps no longer fire actions; move a 1×1 action and confirm it snaps;
+   drag one onto an occupied cell and confirm the drop is rejected with the
+   widget unmoved; resize a widget via the corner handle and confirm min/max
+   limits hold; remove a widget; add an Action (choosing from the action
+   picker), a Daily Overview, and a Media widget, confirming placement in free
+   space and a "Not enough space" message on a full page; create, rename,
+   reorder and delete a page; confirm the last page cannot be deleted; tap
+   **Done**. Relaunch the app (and reboot the tablet) and confirm the layout
+   persists. Finally use **Pages → Reset to default**, confirm the shipped
+   layout returns and that keep-screen-awake is unaffected.
 8. On Android, tap **All Actions** to open the Actions screen and test the rest —
    in roughly ascending risk order, **saving Sleep for last** since it
    interrupts the session:
@@ -652,7 +777,9 @@ same room:
    after it still works — then re-grant and confirm Copy works again.
 11. Disconnect BLE and confirm remote dashboard widgets disable while the
     dashboard, Device/Settings, All Actions, metrics, and clock remain visible;
-    reconnect and confirm actions recover without restarting the app.
+    confirm **Edit mode still works fully while disconnected** (move, resize,
+    add, remove, page management, Reset); reconnect and confirm actions recover
+    without restarting the app.
 12. Force-quit `AliControlMac.app` (or use its Quit menu item) — confirm
     Android detects the disconnect immediately (no stale "Connected").
 13. Relaunch the Mac app — confirm Android can reconnect (either the bounded
@@ -710,3 +837,14 @@ following still need the real tablet and a real Mac together to confirm:
 - Idle CPU/memory footprint in Activity Monitor — the architecture is
   event-driven with no polling/timers/loops on either side by code review,
   but has not been measured on a running instance.
+- **Dashboard editing gestures.** All the layout *rules* (grid bounds,
+  collisions, size limits, page CRUD, persistence, corruption fallback) are
+  covered by pure-Kotlin unit tests, but the gestures that feed them — drag
+  tracking, the drop preview, the corner resize handle, and the touch-target
+  sizes they produce on a 7-inch 1024×600 screen — need a finger on the real
+  tablet. The project has no instrumentation-test setup (no Robolectric, no
+  `androidTest`), so nothing about the on-screen rendering of the dashboard is
+  automatically verified.
+- **Layout persistence across a real app restart/reboot.** The serializer and
+  store are unit-tested against an in-memory implementation; the actual
+  `SharedPreferences` read/write path on the tablet is not.

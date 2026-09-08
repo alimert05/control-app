@@ -157,6 +157,92 @@ class DashboardModelTest {
         DashboardWidget("invalid", WidgetType.CLOCK, 0, 0, 2, 2, WidgetConfig.Metric("CPU"))
     }
 
+    // -- TASK-008: refined defaults on the 6x4 grid --
+
+    @Test
+    fun theShippedDefaultLayoutIsStructurallyValid() {
+        assertTrue(dashboard.isValid())
+        for (page in pages) {
+            assertTrue("${page.id} is not a valid page", page.isValid())
+        }
+    }
+
+    @Test
+    fun everyDefaultWidgetRespectsItsTypeSizeConstraints() {
+        for (page in pages) {
+            for (widget in page.widgets) {
+                assertTrue(
+                    "${page.id}/${widget.id} is ${widget.gridWidth}x${widget.gridHeight}, " +
+                        "outside ${widget.type} limits",
+                    widget.satisfiesSizeConstraints()
+                )
+            }
+        }
+    }
+
+    @Test
+    fun theDashboardPageLeadsWithADailyOverviewWidget() {
+        val overview = page("page_dashboard").widgets.filter { it.type == WidgetType.DAILY_OVERVIEW }
+
+        assertEquals(1, overview.size)
+        assertTrue(overview.single().config is WidgetConfig.DailyOverview)
+    }
+
+    @Test
+    fun theLargeMediaWidgetIsGoneFromTheDashboardPage() {
+        assertTrue(page("page_dashboard").widgets.none { it.type == WidgetType.MEDIA })
+    }
+
+    @Test
+    fun theDashboardPageKeepsCompactMediaControls() {
+        val transport = page("page_dashboard").widgets
+            .filter { it.type == WidgetType.ACTION_GROUP }
+            .firstOrNull { widget ->
+                widget.referencedActionIds().containsAll(
+                    listOf(
+                        AliControlCommands.PREVIOUS_TRACK,
+                        AliControlCommands.PLAY_PAUSE,
+                        AliControlCommands.NEXT_TRACK
+                    )
+                )
+            }
+
+        assertNotNull("dashboard page has no compact transport controls", transport)
+        // Compact means exactly that: a single row, not a full-height player.
+        assertEquals(1, transport!!.gridHeight)
+    }
+
+    @Test
+    fun theMediaPageStillHostsTheFullMediaWidget() {
+        val media = page("page_media").widgets.filter { it.type == WidgetType.MEDIA }
+
+        assertEquals(1, media.size)
+        assertTrue("the media page's player should be large", media.single().gridWidth >= 3)
+    }
+
+    @Test
+    fun theDefaultLayoutKeepsDeviceSettingsAndAllActionsReachableFromWidgets() {
+        val destinations = pages
+            .flatMap { it.widgets }
+            .mapNotNull { (it.config as? WidgetConfig.Shortcut)?.destination }
+            .toSet()
+
+        assertTrue(ShortcutDestination.DEVICE_SETTINGS in destinations)
+        assertTrue(ShortcutDestination.ALL_ACTIONS in destinations)
+    }
+
+    @Test
+    fun theDashboardPageUsesCompactSingleCellActionsForItsAppShortcuts() {
+        // Six 1x1 actions in one row is the point of the refined layout — it
+        // is what stops single actions from eating a quarter of the screen.
+        val compactActions = page("page_dashboard").widgets
+            .filter { it.type == WidgetType.ACTION && it.gridWidth == 1 && it.gridHeight == 1 }
+
+        assertTrue("expected several 1x1 actions, found ${compactActions.size}", compactActions.size >= 6)
+    }
+
+    private fun page(pageId: String): DashboardPage = pages.single { it.id == pageId }
+
     private fun assertPageContains(pageId: String, vararg expectedActionIds: String) {
         val actual = pages.single { it.id == pageId }
             .widgets

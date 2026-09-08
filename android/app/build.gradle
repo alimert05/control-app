@@ -58,4 +58,9 @@ dependencies {
     implementation 'androidx.viewpager2:viewpager2:1.0.0'
 
     testImplementation 'junit:junit:4.13.2'
+    // org.json ships inside Android itself (so it costs the APK nothing), but
+    // the unit-test android.jar only contains stubs that throw. This is the
+    // real reference implementation, test-only, so persistence round-trips
+    // are exercised for real on the JVM.
+    testImplementation 'org.json:json:20231013'
 }

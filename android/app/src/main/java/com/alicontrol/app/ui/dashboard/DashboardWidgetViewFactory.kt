@@ -1,7 +1,9 @@
 package com.alicontrol.app.ui.dashboard
 
+import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.text.format.DateFormat
@@ -12,7 +14,6 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -24,6 +25,8 @@ import com.alicontrol.app.dashboard.DashboardWidget
 import com.alicontrol.app.dashboard.ShortcutDestination
 import com.alicontrol.app.dashboard.WidgetConfig
 import com.alicontrol.app.icons.ActionIconRegistry
+import com.alicontrol.app.ui.ActionsActivity
+import com.alicontrol.app.ui.DeviceSettingsActivity
 import com.alicontrol.app.ui.dashboard.DashboardGridLayout.Companion.setGridPosition
 import com.google.android.material.card.MaterialCardView
 import java.util.Calendar
@@ -35,116 +38,222 @@ import java.util.Date
  * looks — [DashboardPageRenderer] just asks it to build every widget on a
  * page and drops the results into a [DashboardGridLayout].
  *
- * Remote-control widgets (ACTION / ACTION_GROUP / MEDIA's transport row) are
- * dimmed and disabled while disconnected — see [applyRemoteEnabledState] —
- * but [ActionDispatcher] independently re-checks the live connection right
- * before sending regardless, so this is UX polish, not the actual guard.
+ * **Responsive by grid size.** A widget's allocated cells decide its internal
+ * presentation, not a fixed template: a 1x1 ACTION is an icon over a short
+ * label, a 2x1 puts the full label beside the icon, a 2x2 goes large. Text
+ * sizes step with the widget rather than being scaled down until unreadable.
  *
- * Platform awareness: today only the macOS agent exists and the protocol
- * carries no "connected platform" field, so [CURRENT_PLATFORM] is a constant
- * exactly like [com.alicontrol.app.ui.ActionsActivity] already assumes. An
- * action unsupported by [CURRENT_PLATFORM] renders **disabled**, not hidden —
- * consistent with the disconnected-state treatment above, and keeps the grid
- * geometry stable. A future Windows agent only needs this constant swapped
- * for a real connected-platform signal — no dashboard architecture change.
+ * **Edit mode changes what a touch means.** While editing, no widget wires up
+ * its normal click handler at all — a tap selects, a drag moves (see
+ * [WidgetEditGestures]) — so a stray finger can never fire a remote action
+ * while rearranging the dashboard.
+ *
+ * Remote-control widgets are dimmed and disabled while disconnected, but
+ * [ActionDispatcher] independently re-checks the live connection right before
+ * sending, so that dimming is UX, not the actual guard.
+ *
+ * Platform awareness: only the macOS agent exists and the protocol carries no
+ * "connected platform" field, so [CURRENT_PLATFORM] is a constant, exactly as
+ * [ActionsActivity] already assumes. An action unsupported by that platform
+ * renders **disabled** and stays in the saved layout — never silently
+ * dropped. A future Windows agent only needs this constant replaced by a real
+ * signal.
  */
 class DashboardWidgetViewFactory(
     private val activity: AppCompatActivity,
     private val dispatcher: ActionDispatcher
 ) {
 
+    private enum class SizeClass { COMPACT, WIDE, LARGE }
+
     private val density get() = activity.resources.displayMetrics.density
     private fun dp(value: Int): Int = (value * density).toInt()
 
-    fun build(widget: DashboardWidget, isConnected: Boolean): View {
+    fun build(
+        widget: DashboardWidget,
+        isConnected: Boolean,
+        editState: DashboardEditState = DashboardEditState(),
+        editListener: DashboardEditListener? = null
+    ): View {
+        val editing = editState.isEditing
+        val selected = editState.isSelected(widget.id)
+
         val card = MaterialCardView(activity).apply {
             radius = dp(CARD_CORNER_RADIUS_DP).toFloat()
             cardElevation = 0f
             setCardBackgroundColor(ContextCompat.getColor(activity, R.color.surface))
-            strokeColor = ContextCompat.getColor(activity, R.color.divider)
-            strokeWidth = dp(1)
+            strokeColor = ContextCompat.getColor(activity, if (selected) R.color.accent else R.color.divider)
+            strokeWidth = dp(if (selected) 2 else 1)
             setGridPosition(widget.gridX, widget.gridY, widget.gridWidth, widget.gridHeight, dp(CARD_MARGIN_DP))
         }
 
+        val size = sizeClassOf(widget)
         val content: View = when (val config = widget.config) {
-            is WidgetConfig.Action -> buildActionContent(config.actionId)
-            is WidgetConfig.ActionGroup -> buildActionRow(config.actionIds)
-            is WidgetConfig.Metric -> buildMetricContent(config.label)
-            is WidgetConfig.Gauge -> buildGaugeContent(config.label)
-            is WidgetConfig.Clock -> buildClockContent(config.showDate)
-            is WidgetConfig.Media -> buildMediaContent(config)
+            is WidgetConfig.Action -> buildActionContent(config.actionId, size, interactive = !editing)
+            is WidgetConfig.ActionGroup -> buildActionRow(config.actionIds, interactive = !editing)
+            is WidgetConfig.Metric -> buildMetricContent(config.label, size)
+            is WidgetConfig.Gauge -> buildGaugeContent(config.label, size)
+            is WidgetConfig.Clock -> buildClockContent(config.showDate && widget.gridHeight >= 2, size)
+            is WidgetConfig.DailyOverview -> buildDailyOverviewContent(config, widget)
+            is WidgetConfig.Media -> buildMediaContent(config, interactive = !editing)
             is WidgetConfig.Slider -> buildSliderContent(config.label)
-            is WidgetConfig.Shortcut -> buildShortcutContent(config)
+            is WidgetConfig.Shortcut -> buildShortcutContent(config, size, interactive = !editing)
         }
-        card.addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
-        if (widget.isRemoteControl()) {
-            val platformOk = widget.isSupportedOn(CURRENT_PLATFORM)
-            applyRemoteEnabledState(card, isConnected && platformOk)
+        val container = FrameLayout(activity)
+        container.addView(
+            content,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        )
+        card.addView(
+            container,
+            ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        )
+
+        if (editing && editListener != null) {
+            WidgetEditGestures.attachDrag(card, widget, editListener)
+            if (selected) addSelectionChrome(container, card, widget, editListener)
+        } else if (widget.isRemoteControl()) {
+            // Outside edit mode only: dim what can't currently be sent.
+            applyRemoteEnabledState(card, isConnected && widget.isSupportedOn(CURRENT_PLATFORM))
         }
         return card
     }
 
-    // -- ACTION --
+    // -- edit chrome --
 
-    private fun buildActionContent(actionId: String): View {
-        val action = ActionLibrary.find(actionId)
-        val column = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
+    private fun addSelectionChrome(
+        container: FrameLayout,
+        card: View,
+        widget: DashboardWidget,
+        listener: DashboardEditListener
+    ) {
+        val badgeSize = dp(EDIT_BADGE_SIZE_DP)
+
+        val remove = ImageView(activity).apply {
+            setImageResource(R.drawable.ic_close)
+            imageTintList = ColorStateList.valueOf(ContextCompat.getColor(activity, R.color.text_primary))
+            background = circle(R.color.danger)
+            setPadding(dp(5), dp(5), dp(5), dp(5))
+            contentDescription = activity.getString(R.string.edit_remove_widget)
             isClickable = true
             isFocusable = true
-            setBackgroundResource(pressedBackgroundRes())
-            setOnClickListener { if (isActionAvailableForCurrentPlatform(actionId)) dispatcher.dispatch(actionId) }
-            contentDescription = action?.label ?: actionId
+            setOnClickListener { listener.onRemoveWidget(widget.id) }
+            layoutParams = FrameLayout.LayoutParams(badgeSize, badgeSize, Gravity.TOP or Gravity.END).apply {
+                setMargins(0, dp(2), dp(2), 0)
+            }
         }
-        column.addView(iconView(actionId, ICON_SIZE_DP))
-        column.addView(labelView(action?.label ?: actionId).apply {
-            setPadding(0, dp(6), 0, 0)
-        })
-        return column
+        container.addView(remove)
+
+        val resize = ImageView(activity).apply {
+            setImageResource(R.drawable.ic_resize)
+            imageTintList = ColorStateList.valueOf(ContextCompat.getColor(activity, R.color.background))
+            background = circle(R.color.accent)
+            setPadding(dp(5), dp(5), dp(5), dp(5))
+            contentDescription = activity.getString(R.string.edit_resize_widget)
+            layoutParams = FrameLayout.LayoutParams(badgeSize, badgeSize, Gravity.BOTTOM or Gravity.END).apply {
+                setMargins(0, 0, dp(2), dp(2))
+            }
+        }
+        container.addView(resize)
+        WidgetEditGestures.attachResize(resize, card, widget, listener)
     }
+
+    private fun circle(colorRes: Int): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(ContextCompat.getColor(activity, colorRes))
+    }
+
+    // -- ACTION --
+
+    private fun buildActionContent(actionId: String, size: SizeClass, interactive: Boolean): View {
+        val action = ActionLibrary.find(actionId)
+        val label = action?.label ?: actionId
+        val root = when (size) {
+            SizeClass.WIDE -> LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                setPadding(dp(8), 0, dp(8), 0)
+                addView(iconView(actionId, ICON_SIZE_WIDE_DP))
+                addView(labelView(label, 12f).apply {
+                    gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginStart = dp(8)
+                    }
+                })
+            }
+
+            SizeClass.LARGE -> LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                addView(iconView(actionId, ICON_SIZE_LARGE_DP))
+                addView(labelView(label, 13f).apply { setPadding(0, dp(8), 0, 0) })
+            }
+
+            SizeClass.COMPACT -> LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(2), 0, dp(2), 0)
+                addView(iconView(actionId, ICON_SIZE_COMPACT_DP))
+                addView(labelView(shortLabel(label), 9f).apply { setPadding(0, dp(4), 0, 0) })
+            }
+        }
+        root.contentDescription = label
+        if (interactive) {
+            root.isClickable = true
+            root.isFocusable = true
+            root.setBackgroundResource(pressedBackgroundRes())
+            root.setOnClickListener { if (isActionAvailableForCurrentPlatform(actionId)) dispatcher.dispatch(actionId) }
+        }
+        return root
+    }
+
+    /** A 1x1 tile has room for one word — "Mission Control" becomes "Mission", the icon carries the rest. */
+    private fun shortLabel(label: String): String = label.substringBefore(' ').trim()
 
     // -- ACTION_GROUP / MEDIA transport row --
 
-    private fun buildActionRow(actionIds: List<String>): LinearLayout {
+    private fun buildActionRow(actionIds: List<String>, interactive: Boolean): LinearLayout {
         val row = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
         actionIds.forEachIndexed { index, actionId ->
             if (index > 0) row.addView(verticalDivider())
-            row.addView(iconButton(actionId), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+            row.addView(
+                iconButton(actionId, interactive),
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+            )
         }
         return row
     }
 
-    private fun iconButton(actionId: String): View {
+    private fun iconButton(actionId: String, interactive: Boolean): View {
         val action = ActionLibrary.find(actionId)
         return FrameLayout(activity).apply {
-            isClickable = true
-            isFocusable = true
-            setBackgroundResource(pressedBackgroundRes())
-            minimumHeight = dp(MIN_TOUCH_TARGET_DP)
-            minimumWidth = dp(MIN_TOUCH_TARGET_DP)
             contentDescription = action?.label ?: actionId
-            setOnClickListener { if (isActionAvailableForCurrentPlatform(actionId)) dispatcher.dispatch(actionId) }
-            addView(iconView(actionId, ICON_SIZE_DP).apply {
-                layoutParams = FrameLayout.LayoutParams(dp(ICON_SIZE_DP), dp(ICON_SIZE_DP), Gravity.CENTER)
+            if (interactive) {
+                isClickable = true
+                isFocusable = true
+                setBackgroundResource(pressedBackgroundRes())
+                setOnClickListener { if (isActionAvailableForCurrentPlatform(actionId)) dispatcher.dispatch(actionId) }
+            }
+            addView(iconView(actionId, ICON_SIZE_WIDE_DP).apply {
+                layoutParams = FrameLayout.LayoutParams(dp(ICON_SIZE_WIDE_DP), dp(ICON_SIZE_WIDE_DP), Gravity.CENTER)
             })
         }
     }
 
     // -- METRIC --
 
-    private fun buildMetricContent(label: String): View = LinearLayout(activity).apply {
+    private fun buildMetricContent(label: String, size: SizeClass): View = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
-        addView(captionView(label))
+        addView(captionView(label, if (size == SizeClass.COMPACT) 9f else 11f))
         addView(TextView(activity).apply {
             text = activity.getString(R.string.value_placeholder)
             setTextColor(ContextCompat.getColor(activity, R.color.text_primary))
-            textSize = 22f
+            textSize = if (size == SizeClass.COMPACT) 16f else 22f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setPadding(0, dp(2), 0, 0)
@@ -153,40 +262,41 @@ class DashboardWidgetViewFactory(
 
     // -- GAUGE (unavailable shell — no real telemetry, no animation) --
 
-    private fun buildGaugeContent(label: String): View = LinearLayout(activity).apply {
+    private fun buildGaugeContent(label: String, size: SizeClass): View = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
-        setPadding(dp(10), dp(6), dp(10), dp(6))
-        addView(captionView(label))
-        addView(ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
-            isIndeterminate = false
-            max = 100
-            progress = 0
-            isEnabled = false
-            alpha = 0.4f
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)).apply {
-                topMargin = dp(8)
+        setPadding(dp(8), dp(4), dp(8), dp(4))
+        addView(captionView(label, if (size == SizeClass.COMPACT) 9f else 11f))
+        // A static, empty track: the honest "no data" state, drawn once. A
+        // real gauge arrives with TASK-009's live data, not with fake motion.
+        addView(View(activity).apply {
+            background = GradientDrawable().apply {
+                cornerRadius = dp(3).toFloat()
+                setColor(ContextCompat.getColor(activity, R.color.divider))
+            }
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(5)).apply {
+                topMargin = dp(6)
             }
         })
         addView(TextView(activity).apply {
             text = activity.getString(R.string.value_placeholder)
             setTextColor(ContextCompat.getColor(activity, R.color.text_secondary))
-            textSize = 12f
+            textSize = 11f
             gravity = Gravity.CENTER
             setPadding(0, dp(4), 0, 0)
         })
     }
 
-    // -- CLOCK (minute-boundary updates only — no high-frequency timer) --
+    // -- CLOCK / DAILY_OVERVIEW (minute-boundary updates only — no high-frequency timer) --
 
-    private fun buildClockContent(showDate: Boolean): View {
+    private fun buildClockContent(showDate: Boolean, size: SizeClass): View {
         val column = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
         }
         val timeView = TextView(activity).apply {
             setTextColor(ContextCompat.getColor(activity, R.color.text_primary))
-            textSize = 24f
+            textSize = if (size == SizeClass.LARGE) 26f else 20f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
         }
@@ -200,81 +310,154 @@ class DashboardWidgetViewFactory(
             }.also { column.addView(it) }
         } else null
 
+        bindMinuteTicker(column) {
+            timeView.text = formattedTime()
+            dateView?.text = formattedDate()
+        }
+        return column
+    }
+
+    /**
+     * TASK-008's DAILY_OVERVIEW: real local time and date, and explicit
+     * unavailable states for weather, calendar and next event. Nothing here
+     * fetches anything — a weather provider and a calendar source are
+     * TASK-015's job, and showing plausible-looking placeholder values in the
+     * meantime would be worse than showing none.
+     */
+    private fun buildDailyOverviewContent(config: WidgetConfig.DailyOverview, widget: DashboardWidget): View {
+        val roomy = widget.gridWidth >= 4 || widget.gridHeight >= 3
+        val column = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+        }
+
+        val headline = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val timeView = TextView(activity).apply {
+            setTextColor(ContextCompat.getColor(activity, R.color.text_primary))
+            textSize = if (roomy) 34f else 28f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        val dateView = TextView(activity).apply {
+            setTextColor(ContextCompat.getColor(activity, R.color.text_secondary))
+            textSize = if (roomy) 14f else 12f
+            gravity = Gravity.END
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        headline.addView(timeView)
+        headline.addView(dateView)
+        column.addView(headline)
+
+        val weatherText = if (config.locationLabel.isBlank()) {
+            activity.getString(R.string.overview_weather_unavailable)
+        } else {
+            activity.getString(R.string.overview_weather_unavailable_at, config.locationLabel)
+        }
+        column.addView(overviewLine(weatherText, dp(6)))
+
+        column.addView(captionView(activity.getString(R.string.overview_today), 10f).apply {
+            gravity = Gravity.START
+            setPadding(0, dp(if (roomy) 12 else 8), 0, 0)
+        })
+        column.addView(overviewLine(activity.getString(R.string.overview_calendar_unavailable), dp(2)))
+        column.addView(overviewLine(activity.getString(R.string.overview_next_event_unavailable), dp(4)))
+
+        bindMinuteTicker(column) {
+            timeView.text = formattedTime()
+            dateView.text = formattedDate()
+        }
+        return column
+    }
+
+    private fun overviewLine(text: String, topPaddingPx: Int): TextView = TextView(activity).apply {
+        this.text = text
+        setTextColor(ContextCompat.getColor(activity, R.color.text_secondary))
+        textSize = 12f
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+        setPadding(0, topPaddingPx, 0, 0)
+    }
+
+    /**
+     * Refreshes [onTick] once now and then on each minute boundary, only
+     * while the view is actually attached. Nothing polls: one `postDelayed`
+     * is outstanding at a time, and it is cancelled the moment the widget
+     * leaves the window (e.g. the user swipes to another page, or edit mode
+     * rebuilds the page).
+     */
+    private fun bindMinuteTicker(view: View, onTick: () -> Unit) {
         val handler = Handler(Looper.getMainLooper())
         val tick = object : Runnable {
             override fun run() {
-                refreshClock(timeView, dateView)
+                onTick()
                 handler.postDelayed(this, millisUntilNextMinute())
             }
         }
-        column.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        view.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) {
-                refreshClock(timeView, dateView)
+                onTick()
                 handler.postDelayed(tick, millisUntilNextMinute())
             }
+
             override fun onViewDetachedFromWindow(v: View) {
                 handler.removeCallbacks(tick)
             }
         })
-        return column
     }
 
-    private fun refreshClock(timeView: TextView, dateView: TextView?) {
-        val now = Date()
+    private fun formattedTime(): CharSequence {
         val pattern = if (DateFormat.is24HourFormat(activity)) "HH:mm" else "h:mm a"
-        timeView.text = DateFormat.format(pattern, now)
-        dateView?.text = DateFormat.format("EEE, MMM d", now)
+        return DateFormat.format(pattern, Date())
     }
+
+    private fun formattedDate(): CharSequence = DateFormat.format("EEE, d MMM", Date())
 
     private fun millisUntilNextMinute(): Long {
         val calendar = Calendar.getInstance()
-        val secondsIntoMinute = calendar.get(Calendar.SECOND)
-        val millisIntoSecond = calendar.get(Calendar.MILLISECOND)
-        val elapsed = secondsIntoMinute * 1000L + millisIntoSecond
+        val elapsed = calendar.get(Calendar.SECOND) * 1000L + calendar.get(Calendar.MILLISECOND)
         return (60_000L - elapsed).coerceAtLeast(1_000L)
     }
 
     // -- MEDIA --
 
-    private fun buildMediaContent(config: WidgetConfig.Media): View {
+    private fun buildMediaContent(config: WidgetConfig.Media, interactive: Boolean): View {
         val column = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(4), dp(8), dp(4), dp(4))
+            setPadding(dp(4), dp(10), dp(4), dp(6))
         }
-        column.addView(TextView(activity).apply {
-            text = activity.getString(R.string.widget_now_playing)
-            setTextColor(ContextCompat.getColor(activity, R.color.text_secondary))
-            textSize = 11f
-            isAllCaps = true
-            letterSpacing = 0.08f
-            gravity = Gravity.CENTER
-        })
+        column.addView(captionView(activity.getString(R.string.widget_now_playing), 11f))
         column.addView(TextView(activity).apply {
             text = activity.getString(R.string.widget_media_unavailable)
             setTextColor(ContextCompat.getColor(activity, R.color.text_primary))
             textSize = 14f
             gravity = Gravity.CENTER
-            setPadding(0, dp(4), 0, 0)
+            setPadding(0, dp(6), 0, 0)
         })
         column.addView(View(activity), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         column.addView(
-            buildActionRow(listOf(config.previousActionId, config.playPauseActionId, config.nextActionId)),
+            buildActionRow(listOf(config.previousActionId, config.playPauseActionId, config.nextActionId), interactive),
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(MIN_TOUCH_TARGET_DP))
         )
         return column
     }
 
-    // -- SLIDER (visual foundation only; never fakes a value — see TASK-007) --
+    // -- SLIDER (visual foundation only; never fakes a value) --
 
     private fun buildSliderContent(label: String): View = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
         setPadding(dp(12), dp(6), dp(12), dp(6))
-        addView(captionView(label))
+        addView(captionView(label, 11f))
         addView(View(activity).apply {
-            setBackgroundColor(ContextCompat.getColor(activity, R.color.divider))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)).apply {
-                topMargin = dp(4)
+            background = GradientDrawable().apply {
+                cornerRadius = dp(2).toFloat()
+                setColor(ContextCompat.getColor(activity, R.color.divider))
+            }
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(4)).apply {
+                topMargin = dp(6)
+                bottomMargin = dp(6)
             }
         })
         addView(TextView(activity).apply {
@@ -287,36 +470,64 @@ class DashboardWidgetViewFactory(
 
     // -- SHORTCUT (local navigation only, never gated by connection) --
 
-    private fun buildShortcutContent(config: WidgetConfig.Shortcut): View {
-        val column = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            isClickable = true
-            isFocusable = true
-            setBackgroundResource(pressedBackgroundRes())
-            contentDescription = config.label
-            setOnClickListener {
-                val destination = when (config.destination) {
-                    ShortcutDestination.DEVICE_SETTINGS -> com.alicontrol.app.ui.DeviceSettingsActivity::class.java
-                    ShortcutDestination.ALL_ACTIONS -> com.alicontrol.app.ui.ActionsActivity::class.java
-                }
-                activity.startActivity(android.content.Intent(activity, destination))
-            }
-        }
+    private fun buildShortcutContent(config: WidgetConfig.Shortcut, size: SizeClass, interactive: Boolean): View {
         val iconRes = when (config.destination) {
             ShortcutDestination.DEVICE_SETTINGS -> R.drawable.ic_settings
             ShortcutDestination.ALL_ACTIONS -> R.drawable.ic_apps
         }
-        column.addView(ImageView(activity).apply {
+        val icon = ImageView(activity).apply {
             setImageResource(iconRes)
             imageTintList = ColorStateList.valueOf(ContextCompat.getColor(activity, R.color.text_primary))
-            layoutParams = LinearLayout.LayoutParams(dp(ICON_SIZE_DP), dp(ICON_SIZE_DP))
-        })
-        column.addView(labelView(config.label).apply { setPadding(0, dp(6), 0, 0) })
-        return column
+        }
+        val root = if (size == SizeClass.WIDE) {
+            LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                setPadding(dp(8), 0, dp(8), 0)
+                addView(icon, LinearLayout.LayoutParams(dp(ICON_SIZE_WIDE_DP), dp(ICON_SIZE_WIDE_DP)))
+                addView(labelView(config.label, 12f).apply {
+                    gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginStart = dp(8)
+                    }
+                })
+            }
+        } else {
+            val iconSize = if (size == SizeClass.LARGE) ICON_SIZE_LARGE_DP else ICON_SIZE_COMPACT_DP
+            LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(2), 0, dp(2), 0)
+                addView(icon, LinearLayout.LayoutParams(dp(iconSize), dp(iconSize)))
+                addView(
+                    labelView(if (size == SizeClass.COMPACT) shortLabel(config.label) else config.label, if (size == SizeClass.COMPACT) 9f else 13f)
+                        .apply { setPadding(0, dp(4), 0, 0) }
+                )
+            }
+        }
+        root.contentDescription = config.label
+        if (interactive) {
+            root.isClickable = true
+            root.isFocusable = true
+            root.setBackgroundResource(pressedBackgroundRes())
+            root.setOnClickListener {
+                val destination = when (config.destination) {
+                    ShortcutDestination.DEVICE_SETTINGS -> DeviceSettingsActivity::class.java
+                    ShortcutDestination.ALL_ACTIONS -> ActionsActivity::class.java
+                }
+                activity.startActivity(Intent(activity, destination))
+            }
+        }
+        return root
     }
 
     // -- shared helpers --
+
+    private fun sizeClassOf(widget: DashboardWidget): SizeClass = when {
+        widget.gridHeight >= 2 -> SizeClass.LARGE
+        widget.gridWidth >= 2 -> SizeClass.WIDE
+        else -> SizeClass.COMPACT
+    }
 
     private fun iconView(actionId: String, sizeDp: Int): ImageView = ImageView(activity).apply {
         setImageResource(ActionIconRegistry.iconFor(actionId))
@@ -324,28 +535,31 @@ class DashboardWidgetViewFactory(
         layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp))
     }
 
-    private fun labelView(text: String): TextView = TextView(activity).apply {
+    private fun labelView(text: String, sizeSp: Float): TextView = TextView(activity).apply {
         this.text = text
         setTextColor(ContextCompat.getColor(activity, R.color.text_primary))
-        textSize = 12f
+        textSize = sizeSp
         gravity = Gravity.CENTER
         maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
     }
 
-    private fun captionView(text: String): TextView = TextView(activity).apply {
+    private fun captionView(text: String, sizeSp: Float): TextView = TextView(activity).apply {
         this.text = text
         setTextColor(ContextCompat.getColor(activity, R.color.text_secondary))
-        textSize = 11f
+        textSize = sizeSp
         isAllCaps = true
         letterSpacing = 0.06f
         gravity = Gravity.CENTER
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
     }
 
     private fun verticalDivider(): View = View(activity).apply {
         setBackgroundColor(ContextCompat.getColor(activity, R.color.divider))
         layoutParams = LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT).apply {
-            topMargin = dp(10)
-            bottomMargin = dp(10)
+            topMargin = dp(8)
+            bottomMargin = dp(8)
         }
     }
 
@@ -356,17 +570,14 @@ class DashboardWidgetViewFactory(
     }
 
     private fun applyRemoteEnabledState(view: View, enabled: Boolean) {
-        view.isEnabled = enabled
         view.alpha = if (enabled) 1f else DISABLED_ALPHA
-        if (view is ViewGroup) {
-            for (i in 0 until view.childCount) applyRemoteEnabledStateRecursive(view.getChildAt(i), enabled)
-        }
+        applyEnabledRecursive(view, enabled)
     }
 
-    private fun applyRemoteEnabledStateRecursive(view: View, enabled: Boolean) {
+    private fun applyEnabledRecursive(view: View, enabled: Boolean) {
         view.isEnabled = enabled
         if (view is ViewGroup) {
-            for (i in 0 until view.childCount) applyRemoteEnabledStateRecursive(view.getChildAt(i), enabled)
+            for (i in 0 until view.childCount) applyEnabledRecursive(view.getChildAt(i), enabled)
         }
     }
 
@@ -376,16 +587,18 @@ class DashboardWidgetViewFactory(
     companion object {
         /**
          * No BLE "connected platform" signal exists yet (see class doc) —
-         * matches [com.alicontrol.app.ui.ActionsActivity]'s existing
-         * `Platform.MACOS` assumption exactly, since macOS is the only
-         * implemented agent.
+         * matches [ActionsActivity]'s existing `Platform.MACOS` assumption,
+         * since macOS is the only implemented agent.
          */
         val CURRENT_PLATFORM = Platform.MACOS
 
-        private const val CARD_CORNER_RADIUS_DP = 16
-        private const val CARD_MARGIN_DP = 5
-        private const val ICON_SIZE_DP = 26
+        private const val CARD_CORNER_RADIUS_DP = 14
+        private const val CARD_MARGIN_DP = 4
+        private const val ICON_SIZE_COMPACT_DP = 20
+        private const val ICON_SIZE_WIDE_DP = 22
+        private const val ICON_SIZE_LARGE_DP = 30
         private const val MIN_TOUCH_TARGET_DP = 48
+        private const val EDIT_BADGE_SIZE_DP = 26
         private const val DISABLED_ALPHA = 0.35f
     }
 }

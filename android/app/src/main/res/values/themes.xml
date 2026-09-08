@@ -15,6 +15,38 @@
         <item name="android:windowFullscreen">true</item>
     </style>
 
+    <!--
+      TASK-008: every top control (All Actions, Device, Edit, Connect/
+      Disconnect, and the edit-mode bar) renders through this one style, so
+      their height, padding, corner radius, icon size, text size and visual
+      weight are identical by construction rather than by three sets of
+      hand-matched attributes.
+    -->
+    <style name="Widget.AliControl.HeaderButton" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="android:minWidth">0dp</item>
+        <item name="android:minHeight">44dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:insetLeft">0dp</item>
+        <item name="android:insetRight">0dp</item>
+        <item name="android:paddingStart">14dp</item>
+        <item name="android:paddingEnd">14dp</item>
+        <item name="android:paddingTop">0dp</item>
+        <item name="android:paddingBottom">0dp</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="backgroundTint">@color/surface</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="strokeColor">@color/divider</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="iconSize">18dp</item>
+        <item name="iconPadding">8dp</item>
+        <item name="iconTint">@color/text_primary</item>
+        <item name="iconGravity">textStart</item>
+        <item name="rippleColor">@color/accent</item>
+    </style>
+
     <style name="Text.Title" parent="">
         <item name="android:textColor">@color/text_primary</item>
         <item name="android:textSize">26sp</item>

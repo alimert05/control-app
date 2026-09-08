@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">Ali Control</string>
 
     <string name="status_disconnected">No device connected</string>
@@ -33,7 +33,6 @@
     <string name="action_grant_permission">Grant permission</string>
     <string name="action_scan_again">Scan again</string>
 
-    <string name="action_device_settings">⚙</string>
     <string name="device_settings_title">Device</string>
     <string name="action_open_settings">Open Settings</string>
     <string name="label_wifi">Wi-Fi</string>
@@ -58,4 +57,77 @@
     <string name="widget_now_playing">NOW PLAYING</string>
     <string name="widget_media_unavailable">Media unavailable</string>
     <string name="widget_slider_unavailable">Unavailable</string>
+
+    <!-- TASK-008: dashboard customization -->
+    <string name="action_edit">Edit</string>
+    <string name="action_done">Done</string>
+    <string name="action_add_widget">Add</string>
+    <string name="action_pages">Pages</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_reset">Reset</string>
+    <string name="action_save">Save</string>
+
+    <string name="edit_remove_widget">Remove widget</string>
+    <string name="edit_resize_widget">Resize widget</string>
+    <string name="edit_hint">Drag to move · corner handle to resize</string>
+
+    <string name="widget_picker_title">Add widget</string>
+    <string name="action_picker_title">Choose action</string>
+    <string name="metric_picker_title">Choose reading</string>
+    <string name="group_picker_title">Choose controls</string>
+
+    <string name="widget_type_action">Action</string>
+    <string name="widget_type_action_group">Action Group</string>
+    <string name="widget_type_metric">Metric</string>
+    <string name="widget_type_gauge">Gauge</string>
+    <string name="widget_type_clock">Clock</string>
+    <string name="widget_type_daily_overview">Daily Overview</string>
+    <string name="widget_type_media">Media</string>
+    <string name="widget_type_slider">Slider</string>
+    <string name="widget_type_shortcut">Shortcut</string>
+    <string name="widget_type_size_format">%1$s · %2$d×%3$d</string>
+    <string name="widget_type_size_full">%1$s · %2$d×%3$d — no space</string>
+
+    <string name="group_preset_transport">Media transport</string>
+    <string name="group_preset_volume">Volume &amp; mute</string>
+    <string name="group_preset_window">Window controls</string>
+    <string name="group_preset_clipboard">Clipboard</string>
+
+    <string name="page_menu_title">Pages</string>
+    <string name="page_new">New page</string>
+    <string name="page_rename">Rename page</string>
+    <string name="page_move_left">Move left</string>
+    <string name="page_move_right">Move right</string>
+    <string name="page_move_previous">‹</string>
+    <string name="page_move_next">›</string>
+    <string name="page_delete">Delete page</string>
+    <string name="page_reset">Reset to default</string>
+    <string name="page_new_default_name">New Page</string>
+    <string name="page_name_hint">Page name</string>
+    <string name="page_delete_confirm_title">Delete page</string>
+    <plurals name="page_delete_confirm">
+        <item quantity="one">Delete \"%1$s\" and the %2$d widget on it?</item>
+        <item quantity="other">Delete \"%1$s\" and the %2$d widgets on it?</item>
+    </plurals>
+    <string name="reset_confirm_title">Reset to default</string>
+    <string name="reset_confirm_message">Discard your dashboard layout and restore the default pages? No other settings are affected.</string>
+
+    <string name="edit_rejected_overlap">Doesn\'t fit — another widget is there</string>
+    <string name="edit_rejected_bounds">Doesn\'t fit on the grid</string>
+    <string name="edit_rejected_size">That size isn\'t allowed for this widget</string>
+    <string name="edit_rejected_no_space">Not enough space on this page</string>
+    <string name="edit_rejected_unknown_action">That action isn\'t available</string>
+    <string name="edit_rejected_unknown">That change isn\'t possible</string>
+    <string name="edit_rejected_invalid_name">Enter a page name</string>
+    <string name="edit_rejected_last_page">The last page can\'t be deleted</string>
+
+    <string name="overview_weather_unavailable">Weather unavailable</string>
+    <string name="overview_weather_unavailable_at">%1$s • Weather unavailable</string>
+    <string name="overview_today">Today</string>
+    <string name="overview_calendar_unavailable">No calendar data</string>
+    <!-- The double hyphen is this app's established unavailable marker (see value_placeholder), not a dash typo. -->
+    <string name="overview_next_event_unavailable" tools:ignore="TypographyDashes">Next event: --</string>
+
+    <string name="action_badge_confirm">Confirm</string>
+    <string name="action_badge_accessibility">Accessibility</string>
 </resources>

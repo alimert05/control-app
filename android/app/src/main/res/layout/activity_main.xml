@@ -6,8 +6,8 @@
     android:layout_height="match_parent"
     android:background="@color/background"
     android:orientation="vertical"
-    android:paddingHorizontal="16dp"
-    android:paddingVertical="14dp">
+    android:paddingHorizontal="14dp"
+    android:paddingVertical="12dp">
 
     <LinearLayout
         android:id="@+id/headerRow"
@@ -48,80 +48,151 @@
             android:id="@+id/currentPageLabel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="14dp"
+            android:layout_marginEnd="12dp"
             style="@style/Text.StatLabel"
             tools:text="DASHBOARD" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/allActionsButton"
+        <!-- Normal mode controls -->
+        <LinearLayout
+            android:id="@+id/normalControls"
             android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:layout_marginEnd="10dp"
-            android:text="@string/action_all_actions"
-            android:textSize="12sp"
-            app:icon="@drawable/ic_apps"
-            app:iconTint="@color/text_primary"
-            app:iconSize="18dp"
-            app:iconGravity="textStart"
-            app:backgroundTint="@color/surface"
-            app:cornerRadius="14dp"
-            app:strokeColor="@color/divider"
-            app:strokeWidth="1dp" />
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/deviceSettingsButton"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginEnd="10dp"
-            android:contentDescription="@string/device_settings_title"
-            android:insetLeft="0dp"
-            android:insetRight="0dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            app:icon="@drawable/ic_settings"
-            app:iconTint="@color/text_primary"
-            app:iconSize="20dp"
-            app:iconGravity="textStart"
-            app:iconPadding="0dp"
-            app:backgroundTint="@color/surface"
-            app:cornerRadius="14dp"
-            app:strokeColor="@color/divider"
-            app:strokeWidth="1dp" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/allActionsButton"
+                style="@style/Widget.AliControl.HeaderButton"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginEnd="8dp"
+                android:text="@string/action_all_actions"
+                app:icon="@drawable/ic_apps" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/connectButton"
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/deviceSettingsButton"
+                style="@style/Widget.AliControl.HeaderButton"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginEnd="8dp"
+                android:text="@string/device_settings_title"
+                app:icon="@drawable/ic_settings" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/editButton"
+                style="@style/Widget.AliControl.HeaderButton"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginEnd="8dp"
+                android:text="@string/action_edit"
+                app:icon="@drawable/ic_edit" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/connectButton"
+                style="@style/Widget.AliControl.HeaderButton"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:text="@string/action_connect"
+                app:icon="@drawable/ic_bluetooth"
+                app:iconTint="@color/accent" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/disconnectButton"
+                style="@style/Widget.AliControl.HeaderButton"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:text="@string/action_disconnect"
+                android:visibility="gone"
+                app:icon="@drawable/ic_bluetooth" />
+        </LinearLayout>
+
+        <!-- Edit mode controls -->
+        <LinearLayout
+            android:id="@+id/editControls"
             android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:text="@string/action_connect"
-            app:cornerRadius="14dp" />
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/disconnectButton"
-            android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:text="@string/action_disconnect"
-            android:visibility="gone"
-            app:backgroundTint="@color/surface"
-            app:cornerRadius="14dp"
-            app:strokeColor="@color/divider"
-            app:strokeWidth="1dp" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/addWidgetButton"
+                style="@style/Widget.AliControl.HeaderButton"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginEnd="8dp"
+                android:text="@string/action_add_widget"
+                app:icon="@drawable/ic_add" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/pagesButton"
+                style="@style/Widget.AliControl.HeaderButton"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginEnd="8dp"
+                android:text="@string/action_pages"
+                app:icon="@drawable/ic_pages" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/doneButton"
+                style="@style/Widget.AliControl.HeaderButton"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:text="@string/action_done"
+                app:icon="@drawable/ic_check"
+                app:iconTint="@color/accent" />
+        </LinearLayout>
 
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/editHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="@string/edit_hint"
+        android:textColor="@color/text_secondary"
+        android:textSize="11sp"
+        android:visibility="gone" />
 
     <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/dashboardPager"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="12dp" />
+        android:layout_marginTop="10dp" />
 
     <LinearLayout
-        android:id="@+id/pageIndicator"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="center_horizontal"
         android:layout_marginTop="6dp"
         android:gravity="center"
-        android:orientation="horizontal" />
+        android:orientation="horizontal">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/previousPageButton"
+            style="@style/Widget.AliControl.HeaderButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginEnd="10dp"
+            android:text="@string/page_move_previous"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/pageIndicator"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:orientation="horizontal" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/nextPageButton"
+            style="@style/Widget.AliControl.HeaderButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginStart="10dp"
+            android:text="@string/page_move_next"
+            android:visibility="gone" />
+    </LinearLayout>
 
 </LinearLayout>
