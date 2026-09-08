@@ -22,43 +22,30 @@ the **action library**: 27 structured, platform-aware actions (up from 5
 hardcoded ones) across five categories, backed on Android by a static
 registry (`actions/`) UI can filter/drive, and on macOS by a data-driven
 `ActionRegistry` that replaced the old growing switch statement (see
-[TASKS.md](TASKS.md)).
+[TASKS.md](TASKS.md)). TASK-007 replaces the temporary five-card home screen
+with a three-page, icon-forward dashboard rendered from reusable widget and
+12x8 logical-grid models, while retaining the complete Actions screen for
+manual coverage of all 27 commands.
 
 ## Overall architecture
 
 ```
-Android tablet (BLE central)                    macOS agent (BLE peripheral)
-─────────────────────────────                    ─────────────────────────────
-ui/                                               App/            menu bar shell
-  MainActivity, ConnectActivity,                    main.swift, AppDelegate.swift,
-  DeviceSettingsActivity, ActionsActivity             LoginItemController.swift
-      |                                                  |
-actions/                                           BLE/
-  ActionLibrary (static registry)                    PeripheralManager
-  ActionDefinition, Platform,                          (CBPeripheralManager)
-  ActionCategory, DangerLevel,                            |
-  PermissionRequirement                             Protocol/
-      |                                                ProtocolMessage
-kiosk/                                                   AliControlAction (IDs)
-  KioskController (immersive mode,                        |
-    keep-awake, escape hatch)                        Control/
-  BootReceiver (launch on boot)                         CommandDispatcher
-      |                                                 ActionRegistry (id -> handler,
-device/                                                   not a growing switch)
-  DeviceController                                      MediaController, SystemController,
-  BrightnessController, VolumeController,                AppLauncher, WindowController,
-  BatteryProvider (tablet-local only —                    ProductivityController
-  never touches BLE)                                    KeystrokeSimulator, AccessibilityChecking
-      |
-transport/
-  Transport + TransportManager
-  BluetoothTransport (BLE central,
-    bounded auto-reconnect)  <==== BLE ====>
-      |
-ble/
-  AliControlBleProfile (UUIDs)
-  ProtocolMessage (message format)
-  AliControlCommands (allowlist)
+Android tablet (BLE central)
+  ui/                      MainActivity + secondary screens
+    └─ ui/dashboard/       ViewPager2, grid/page/widget renderers
+         └─ dashboard/     UI-independent page, widget and 12x8 grid data
+              └─ actions/  ActionLibrary metadata + shared ActionDispatcher
+                   └─ transport/ + ble/
+                        BluetoothTransport, protocol messages and allowlist
+                                  ⇅ BLE
+macOS agent (BLE peripheral)
+  App/                     menu-bar lifecycle and login item
+    └─ BLE/                PeripheralManager
+         └─ Protocol/      ProtocolMessage + AliControlAction IDs
+              └─ Control/  ActionRegistry + platform-specific controllers
+
+Android kiosk/ and device/ remain independent supporting layers for immersive
+mode, boot launch, keep-awake, and tablet-local settings/status.
 ```
 
 Both sides implement the *same* protocol (identical UUIDs, identical JSON
@@ -294,16 +281,48 @@ no compatibility impact).
 
 ### UI
 
-The home screen has no app branding/title — just connection state (device
-name when connected, or disconnected/scanning/**preparing**/connecting/error
-otherwise), a small ⚙ button that opens **Device/Settings**, a **More** button
-that opens the new **Actions** screen, and the original five control cards:
-**Volume Up, Volume Down, Mute, Play / Pause, Terminal**. The cards are
-visibly dimmed and disabled whenever nothing is connected (TASK-005); tapping
-one with nothing connected still shows a lightweight toast as a second line
-of defense. `ConnectActivity` is the separate scan/connect flow (unchanged
-from TASK-002). Tablet-local stats (battery/brightness/volume) stay off this
-screen — they live only in Device/Settings.
+The home screen is now a dedicated, three-page dashboard. Its compact header
+keeps connection state, Connect/Disconnect, **Device/Settings**, and **All
+Actions** immediately reachable; `ConnectActivity` remains the separate BLE
+scan/connect flow. Horizontal swipes move between **Dashboard**, **Media**,
+and **Dev**, with the current page name and a lightweight dot indicator making
+position clear. Page count comes from the `Dashboard.pages` data rather than
+being hardcoded in `MainActivity`, so the same pager can render an arbitrary
+number of pages when TASK-008 adds page editing.
+
+`dashboard/` is a UI-independent model: each `DashboardPage` owns ordered
+`DashboardWidget` values with type, configuration, and bounds in one stable
+**12-column × 8-row logical grid**. `DefaultDashboardFactory` supplies the
+three shipped layouts as static in-memory data. `ui/dashboard/` turns that
+data into native XML/View-based pages using a small custom `ViewGroup`, a
+`ViewPager2`, and reusable card renderers—there is no Compose, database,
+continuous animation, or telemetry polling.
+
+The renderer supports `ACTION`, `ACTION_GROUP`, `METRIC`, `GAUGE`, `CLOCK`,
+`MEDIA`, and `SLIDER`, plus a local-only `SHORTCUT` used for Device/Settings.
+The Dashboard page mixes CPU/GPU/RAM placeholders, a local minute-updated
+clock, media transport controls, volume/mute, Lock, Screenshot, Terminal, VS
+Code, Spotlight, and Mission Control. Media provides the full transport row,
+volume, mute, and Spotify. Dev provides VS Code, Terminal, Browser, Finder,
+Spotlight, Activity Monitor, Screenshot, System Settings, and compact system
+placeholders.
+
+Every remote action still resolves its ID through `ActionLibrary` and is sent
+through the shared `ActionDispatcher` and existing `TransportManager`; danger
+metadata therefore still controls confirmation dialogs. Remote widgets dim
+and disable while disconnected, while metrics, the clock, and local
+Device/Settings access remain usable. The current agent is macOS, so widgets
+whose actions do not support macOS render disabled rather than being removed;
+this preserves grid geometry and can consume a future connected-platform
+signal without changing the dashboard model.
+
+Action icons come from one Android `ActionIconRegistry` backed entirely by
+small local vector drawables. CPU/GPU/RAM and gauge shells deliberately show
+`--`, media deliberately says `Media unavailable`, and the slider shell has
+no thumb or value: TASK-007 does not fabricate telemetry, volume state, media
+metadata, or artwork. TASK-008 can persist and edit the same page/widget/grid
+data later; TASK-007 intentionally has no editor, drag/drop, resize handles,
+picker, or layout persistence.
 
 **Actions screen (TASK-006, temporary):** `ActionsActivity` lists every
 action from `ActionLibrary` that supports macOS, grouped by category, built
@@ -312,13 +331,13 @@ that's the whole point of having structured metadata. Rows reuse the
 existing plain-row style already used for the BLE device list; there's no
 new design system here on purpose. Tapping a `SAFE` action sends it
 immediately; tapping `sleep` (the only `CONFIRM` action) shows an
-`AlertDialog` first. **This is explicitly not the final UI** — TASK-007 is
-where a real customizable, drag/drop-free-but-designed layout replaces it.
+`AlertDialog` first. It remains available through **All Actions** so all 27
+actions can be tested until TASK-008 supplies an action picker.
 
 ### Kiosk / immersive fullscreen
 
 `kiosk/KioskController` (not any Activity) owns this. Every screen
-(`MainActivity`, `ConnectActivity`, `DeviceSettingsActivity`) hides the status
+(`MainActivity`, `ConnectActivity`, `DeviceSettingsActivity`, `ActionsActivity`) hides the status
 and navigation bars via `View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY` +
 `SYSTEM_UI_FLAG_FULLSCREEN`/`HIDE_NAVIGATION`, reapplied from both `onResume()`
 and `onWindowFocusChanged(true)` — the standard two-hook pattern, since a
@@ -374,7 +393,7 @@ lives in `device/` (`BrightnessController`, `VolumeController`,
   + `writeCharacteristic(characteristic)`, the 2-arg `onCharacteristicChanged`/
   `onDescriptorWrite` callbacks, etc.) since the newer byte-array overloads
   don't exist on API 27 devices — these carry `@Suppress("DEPRECATION")`.
-- Every API used across all five tasks (`Settings.System.canWrite`,
+- Every Android API used across the implemented tasks (`Settings.System.canWrite`,
   `ACTION_MANAGE_WRITE_SETTINGS`, `BatteryManager.BATTERY_PROPERTY_CAPACITY`,
   `AudioManager` stream volume, `FLAG_KEEP_SCREEN_ON`, `SharedPreferences`,
   manifest `BOOT_COMPLETED`, `BluetoothGatt.requestMtu`/`onMtuChanged`/
@@ -610,10 +629,13 @@ same room:
 5. Confirm Android reaches a true **Connected** state (not stuck on
    "Preparing…") and the macOS menu bar icon reaches ●, showing the tablet's
    identifier.
-6. Test the original five: **Volume Up**, **Volume Down**, **Mute**,
-   **Play/Pause** (see the Accessibility caveat above if it has no effect),
-   and **Terminal**.
-7. On Android, tap **More** to open the Actions screen and test the rest —
+6. Verify Dashboard, Media, and Dev render correctly; swipe repeatedly through
+   them and confirm the page name/dots follow without lag or crashes.
+7. Test the dashboard actions, including media transport, volume/mute, Lock,
+   Screenshot, Terminal, VS Code, Spotlight, Mission Control, Spotify, Browser,
+   Finder, Activity Monitor, and System Settings. Confirm CPU/GPU/RAM remain
+   honest `--` placeholders and media remains `Media unavailable`.
+8. On Android, tap **All Actions** to open the Actions screen and test the rest —
    in roughly ascending risk order, **saving Sleep for last** since it
    interrupts the session:
    Next Track, Previous Track, Lock Screen, Display Sleep, Screenshot, Show
@@ -622,28 +644,31 @@ same room:
    Settings, Activity Monitor, Minimize Window, Close Window (confirm the
    app itself stays running), Fullscreen Toggle, Copy, Paste, Undo, Redo,
    and finally Sleep (confirm the confirmation dialog appears first).
-8. Verify an unavailable-app action (e.g. VS Code or Spotify if not
+9. Verify an unavailable-app action (e.g. VS Code or Spotify if not
    installed on the test Mac) fails safely — a clean error toast, no crash.
-9. Temporarily revoke Accessibility for `AliControlMac.app` (System Settings
+10. Temporarily revoke Accessibility for `AliControlMac.app` (System Settings
    → Privacy & Security → Accessibility) and confirm an Accessibility-gated
    action (e.g. Copy) fails cleanly with an error ack, while Volume Up right
    after it still works — then re-grant and confirm Copy works again.
-10. Force-quit `AliControlMac.app` (or use its Quit menu item) — confirm
+11. Disconnect BLE and confirm remote dashboard widgets disable while the
+    dashboard, Device/Settings, All Actions, metrics, and clock remain visible;
+    reconnect and confirm actions recover without restarting the app.
+12. Force-quit `AliControlMac.app` (or use its Quit menu item) — confirm
     Android detects the disconnect immediately (no stale "Connected").
-11. Relaunch the Mac app — confirm Android can reconnect (either the bounded
+13. Relaunch the Mac app — confirm Android can reconnect (either the bounded
     auto-reconnect kicks in, or a manual Connect works) without restarting
     the tablet app.
-12. Toggle Mac Bluetooth off and back on — confirm advertising recovers on
+14. Toggle Mac Bluetooth off and back on — confirm advertising recovers on
     its own.
-13. Toggle tablet Bluetooth off and on — confirm Android recovers cleanly.
-14. Reboot the tablet — confirm Ali Control still launches on boot.
-15. If "Open at Login" is enabled, restart the Mac and confirm
+15. Toggle tablet Bluetooth off and on — confirm Android recovers cleanly.
+16. Reboot the tablet — confirm Ali Control still launches on boot.
+17. If "Open at Login" is enabled, restart the Mac and confirm
     `AliControlMac.app` launches automatically.
-16. Confirm no Terminal or Xcode process is needed anywhere in the above.
-17. Open Activity Monitor while idle (nothing being pressed) — confirm CPU
+18. Confirm no Terminal or Xcode process is needed anywhere in the above.
+19. Open Activity Monitor while idle (nothing being pressed) — confirm CPU
     usage is effectively idle and memory usage is reasonable for a menu-bar
     helper.
-18. On Android: open Device/Settings and exercise every control (brightness,
+20. On Android: open Device/Settings and exercise every control (brightness,
     tablet volume, battery, Wi-Fi/Bluetooth settings entry, keep-awake), the
     development escape hatch, and returning from Android Settings — confirm
     no crash anywhere.

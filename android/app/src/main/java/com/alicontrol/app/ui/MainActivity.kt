@@ -3,22 +3,40 @@ package com.alicontrol.app.ui
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.viewpager2.widget.ViewPager2
 import com.alicontrol.app.AliControlApp
 import com.alicontrol.app.R
+import com.alicontrol.app.actions.ActionDispatcher
 import com.alicontrol.app.ble.ProtocolMessage
+import com.alicontrol.app.dashboard.Dashboard
+import com.alicontrol.app.dashboard.DefaultDashboardFactory
 import com.alicontrol.app.databinding.ActivityMainBinding
 import com.alicontrol.app.kiosk.KioskController
 import com.alicontrol.app.transport.BluetoothTransport
 import com.alicontrol.app.transport.TransportListener
 import com.alicontrol.app.transport.TransportManager
+import com.alicontrol.app.ui.dashboard.DashboardPageRenderer
+import com.alicontrol.app.ui.dashboard.DashboardPagerAdapter
+import com.alicontrol.app.ui.dashboard.DashboardWidgetViewFactory
+import com.alicontrol.app.ui.dashboard.DotsIndicator
 
+/**
+ * TASK-007: Ali Control's primary screen — a multi-page, widget-based
+ * dashboard (see [Dashboard]/[DefaultDashboardFactory]) replacing the old
+ * single control-card row. Connect, Device/Settings and All Actions remain
+ * one tap away from the header, matching the old screen's accessibility
+ * guarantees; the dashboard itself never navigates away just because BLE
+ * disconnects — widgets simply dim (see [DashboardWidgetViewFactory]).
+ */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var transportManager: TransportManager
     private lateinit var kioskController: KioskController
+    private lateinit var dashboard: Dashboard
+    private lateinit var pagerAdapter: DashboardPagerAdapter
+    private lateinit var dotsIndicator: DotsIndicator
 
     /** Last BLE error, shown alongside the disconnected state until the next connect attempt. */
     private var lastErrorMessage: String? = null
@@ -36,12 +54,18 @@ class MainActivity : AppCompatActivity() {
             if (message.type != ProtocolMessage.TYPE_STATE) return
             val action = message.action ?: return
             val status = message.status ?: return
-            Toast.makeText(this@MainActivity, getString(R.string.mac_ack_format, action, status), Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(this@MainActivity, getString(R.string.mac_ack_format, action, status), android.widget.Toast.LENGTH_SHORT).show()
         }
 
         override fun onError(message: String) {
             lastErrorMessage = message
             refreshStatus()
+        }
+    }
+
+    private val pageChangeCallback = object : ViewPager2.OnPageChangeCallback() {
+        override fun onPageSelected(position: Int) {
+            updatePageChrome(position)
         }
     }
 
@@ -52,8 +76,10 @@ class MainActivity : AppCompatActivity() {
 
         transportManager = (application as AliControlApp).transportManager
         kioskController = KioskController(this)
+        dashboard = DefaultDashboardFactory.create()
 
-        setupControlCards()
+        setupDashboard()
+
         binding.connectButton.setOnClickListener {
             startActivity(Intent(this, ConnectActivity::class.java))
         }
@@ -63,7 +89,7 @@ class MainActivity : AppCompatActivity() {
         binding.deviceSettingsButton.setOnClickListener {
             startActivity(Intent(this, DeviceSettingsActivity::class.java))
         }
-        binding.moreActionsButton.setOnClickListener {
+        binding.allActionsButton.setOnClickListener {
             startActivity(Intent(this, ActionsActivity::class.java))
         }
 
@@ -95,6 +121,33 @@ class MainActivity : AppCompatActivity() {
      */
     override fun onBackPressed() = Unit
 
+    private fun setupDashboard() {
+        val pages = dashboard.orderedPages
+        val dispatcher = ActionDispatcher(this, transportManager)
+        val widgetFactory = DashboardWidgetViewFactory(this, dispatcher)
+        val renderer = DashboardPageRenderer(widgetFactory)
+        pagerAdapter = DashboardPagerAdapter(pages, renderer)
+        binding.dashboardPager.adapter = pagerAdapter
+        binding.dashboardPager.registerOnPageChangeCallback(pageChangeCallback)
+
+        dotsIndicator = DotsIndicator(binding.pageIndicator)
+        dotsIndicator.bind(pages.size, binding.dashboardPager.currentItem)
+        updatePageChrome(binding.dashboardPager.currentItem)
+    }
+
+    override fun onDestroy() {
+        binding.dashboardPager.unregisterOnPageChangeCallback(pageChangeCallback)
+        binding.dashboardPager.adapter = null
+        super.onDestroy()
+    }
+
+    private fun updatePageChrome(position: Int) {
+        val pages = dashboard.orderedPages
+        val name = pages.getOrNull(position)?.name.orEmpty()
+        binding.currentPageLabel.text = name
+        dotsIndicator.bind(pages.size, position)
+    }
+
     private fun refreshStatus() {
         val bluetooth = transportManager.bluetooth
         val connected = bluetooth.isConnected
@@ -108,7 +161,7 @@ class MainActivity : AppCompatActivity() {
         binding.connectButton.visibility = if (connected) View.GONE else View.VISIBLE
         binding.disconnectButton.visibility = if (connected) View.VISIBLE else View.GONE
 
-        setControlCardsEnabled(connected)
+        pagerAdapter.updateConnectionState(connected)
     }
 
     private fun statusText(state: BluetoothTransport.ConnectionState): String = when (state) {
@@ -120,34 +173,5 @@ class MainActivity : AppCompatActivity() {
             val error = lastErrorMessage
             if (error != null) getString(R.string.status_connection_error, error) else getString(R.string.status_disconnected)
         }
-    }
-
-    private fun setupControlCards() {
-        val listener = View.OnClickListener { view ->
-            val action = view.tag as? String ?: return@OnClickListener
-            sendCommand(action)
-        }
-        binding.cardVolumeUp.setOnClickListener(listener)
-        binding.cardVolumeDown.setOnClickListener(listener)
-        binding.cardMute.setOnClickListener(listener)
-        binding.cardPlayPause.setOnClickListener(listener)
-        binding.cardOpenTerminal.setOnClickListener(listener)
-    }
-
-    /** Visually dims and disables the command cards when nothing is connected — sendCommand() still guards too. */
-    private fun setControlCardsEnabled(enabled: Boolean) {
-        val alpha = if (enabled) 1f else 0.4f
-        for (card in listOf(binding.cardVolumeUp, binding.cardVolumeDown, binding.cardMute, binding.cardPlayPause, binding.cardOpenTerminal)) {
-            card.isEnabled = enabled
-            card.alpha = alpha
-        }
-    }
-
-    private fun sendCommand(action: String) {
-        if (!transportManager.bluetooth.isConnected) {
-            Toast.makeText(this, R.string.error_not_connected, Toast.LENGTH_SHORT).show()
-            return
-        }
-        transportManager.bluetooth.send(ProtocolMessage.command(action).toBytes())
     }
 }

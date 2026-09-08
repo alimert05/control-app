@@ -47,10 +47,15 @@
     <string name="percent_format">%1$d%%</string>
     <string name="value_placeholder">--</string>
 
-    <string name="action_more">More</string>
     <string name="actions_screen_title">Actions</string>
     <string name="action_row_confirm_suffix">%1$s…</string>
     <string name="confirm_action_message">Send \"%1$s\" to the connected computer?</string>
     <string name="action_confirm">Send</string>
     <string name="action_cancel">Cancel</string>
+
+    <!-- TASK-007: multi-page widget dashboard -->
+    <string name="action_all_actions">All Actions</string>
+    <string name="widget_now_playing">NOW PLAYING</string>
+    <string name="widget_media_unavailable">Media unavailable</string>
+    <string name="widget_slider_unavailable">Unavailable</string>
 </resources>

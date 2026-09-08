@@ -11,13 +11,14 @@
 ## Post-MVP
 
 - [x] TASK-006 — Action Library Foundation
-- [ ] TASK-007 — Customizable Control Layout
-- [ ] TASK-008 — Custom Shortcuts & Profiles
-- [ ] TASK-009 — Themes
-- [ ] TASK-010 — Performance Monitoring
-- [ ] TASK-011 — Advanced System Controls
-- [ ] TASK-012 — Fan / Hardware Integrations
-- [ ] TASK-013 — AI Developer Integrations
+- [x] TASK-007 — Multi-Page Dashboard & Widget UI Foundation
+- [ ] TASK-008 — Dashboard Customization & Layout Editor
+- [ ] TASK-009 — Custom Shortcuts & Profiles
+- [ ] TASK-010 — Themes
+- [ ] TASK-011 — Performance Monitoring
+- [ ] TASK-012 — Advanced System Controls
+- [ ] TASK-013 — Fan / Hardware Integrations
+- [ ] TASK-014 — AI Developer Integrations
 
 ## Deferred
 

@@ -6,8 +6,8 @@
     android:layout_height="match_parent"
     android:background="@color/background"
     android:orientation="vertical"
-    android:paddingHorizontal="28dp"
-    android:paddingVertical="20dp">
+    android:paddingHorizontal="16dp"
+    android:paddingVertical="14dp">
 
     <LinearLayout
         android:id="@+id/headerRow"
@@ -37,19 +37,32 @@
                 android:id="@+id/connectionStatusValue"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="2dp"
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:text="@string/status_disconnected"
                 style="@style/Text.StatLabel" />
         </LinearLayout>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/moreActionsButton"
+        <TextView
+            android:id="@+id/currentPageLabel"
             android:layout_width="wrap_content"
-            android:layout_height="56dp"
-            android:layout_marginEnd="12dp"
-            android:text="@string/action_more"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="14dp"
+            style="@style/Text.StatLabel"
+            tools:text="DASHBOARD" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/allActionsButton"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginEnd="10dp"
+            android:text="@string/action_all_actions"
+            android:textSize="12sp"
+            app:icon="@drawable/ic_apps"
+            app:iconTint="@color/text_primary"
+            app:iconSize="18dp"
+            app:iconGravity="textStart"
             app:backgroundTint="@color/surface"
             app:cornerRadius="14dp"
             app:strokeColor="@color/divider"
@@ -57,11 +70,19 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/deviceSettingsButton"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
-            android:layout_marginEnd="12dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="10dp"
             android:contentDescription="@string/device_settings_title"
-            android:text="@string/action_device_settings"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            app:icon="@drawable/ic_settings"
+            app:iconTint="@color/text_primary"
+            app:iconSize="20dp"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
             app:backgroundTint="@color/surface"
             app:cornerRadius="14dp"
             app:strokeColor="@color/divider"
@@ -70,14 +91,14 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/connectButton"
             android:layout_width="wrap_content"
-            android:layout_height="56dp"
+            android:layout_height="48dp"
             android:text="@string/action_connect"
             app:cornerRadius="14dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/disconnectButton"
             android:layout_width="wrap_content"
-            android:layout_height="56dp"
+            android:layout_height="48dp"
             android:text="@string/action_disconnect"
             android:visibility="gone"
             app:backgroundTint="@color/surface"
@@ -87,140 +108,20 @@
 
     </LinearLayout>
 
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginTop="18dp"
-        android:background="@color/divider" />
-
-    <LinearLayout
+    <androidx.viewpager2.widget.ViewPager2
+        android:id="@+id/dashboardPager"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="18dp"
-        android:orientation="horizontal">
+        android:layout_marginTop="12dp" />
 
-        <!-- android:tag on each card is the protocol action from AliControlCommands. -->
-
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardVolumeUp"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginEnd="12dp"
-            android:tag="volume_up"
-            android:clickable="true"
-            android:focusable="true"
-            app:cardBackgroundColor="@color/surface"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
-            app:rippleColor="@color/accent"
-            app:strokeColor="@color/divider"
-            app:strokeWidth="1dp">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:gravity="center"
-                android:text="@string/action_volume_up"
-                style="@style/Text.SectionLabel" />
-        </com.google.android.material.card.MaterialCardView>
-
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardVolumeDown"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginEnd="12dp"
-            android:tag="volume_down"
-            android:clickable="true"
-            android:focusable="true"
-            app:cardBackgroundColor="@color/surface"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
-            app:rippleColor="@color/accent"
-            app:strokeColor="@color/divider"
-            app:strokeWidth="1dp">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:gravity="center"
-                android:text="@string/action_volume_down"
-                style="@style/Text.SectionLabel" />
-        </com.google.android.material.card.MaterialCardView>
-
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardMute"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginEnd="12dp"
-            android:tag="mute_toggle"
-            android:clickable="true"
-            android:focusable="true"
-            app:cardBackgroundColor="@color/surface"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
-            app:rippleColor="@color/accent"
-            app:strokeColor="@color/divider"
-            app:strokeWidth="1dp">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:gravity="center"
-                android:text="@string/action_mute"
-                style="@style/Text.SectionLabel" />
-        </com.google.android.material.card.MaterialCardView>
-
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardPlayPause"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginEnd="12dp"
-            android:tag="play_pause"
-            android:clickable="true"
-            android:focusable="true"
-            app:cardBackgroundColor="@color/surface"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
-            app:rippleColor="@color/accent"
-            app:strokeColor="@color/divider"
-            app:strokeWidth="1dp">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:gravity="center"
-                android:text="@string/action_play_pause"
-                style="@style/Text.SectionLabel" />
-        </com.google.android.material.card.MaterialCardView>
-
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardOpenTerminal"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:tag="open_terminal"
-            android:clickable="true"
-            android:focusable="true"
-            app:cardBackgroundColor="@color/surface"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
-            app:rippleColor="@color/accent"
-            app:strokeColor="@color/divider"
-            app:strokeWidth="1dp">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:gravity="center"
-                android:text="@string/action_open_terminal"
-                style="@style/Text.SectionLabel" />
-        </com.google.android.material.card.MaterialCardView>
-
-    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/pageIndicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="6dp"
+        android:gravity="center"
+        android:orientation="horizontal" />
 
 </LinearLayout>

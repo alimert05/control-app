@@ -6,11 +6,11 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.alicontrol.app.AliControlApp
 import com.alicontrol.app.R
 import com.alicontrol.app.actions.ActionDefinition
+import com.alicontrol.app.actions.ActionDispatcher
 import com.alicontrol.app.actions.ActionLibrary
 import com.alicontrol.app.actions.DangerLevel
 import com.alicontrol.app.actions.Platform
@@ -34,6 +34,7 @@ class ActionsActivity : AppCompatActivity() {
     private lateinit var binding: ActivityActionsBinding
     private lateinit var transportManager: TransportManager
     private lateinit var kioskController: KioskController
+    private lateinit var actionDispatcher: ActionDispatcher
 
     private val transportListener = object : TransportListener {
         override fun onConnected() = refreshStatus()
@@ -57,6 +58,7 @@ class ActionsActivity : AppCompatActivity() {
 
         transportManager = (application as AliControlApp).transportManager
         kioskController = KioskController(this)
+        actionDispatcher = ActionDispatcher(this, transportManager)
 
         binding.closeButton.setOnClickListener { finish() }
         kioskController.attachEscapeHatch(binding.screenTitle, window)
@@ -122,7 +124,7 @@ class ActionsActivity : AppCompatActivity() {
         val outValue = TypedValue()
         theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
         row.setBackgroundResource(outValue.resourceId)
-        row.setOnClickListener { onActionTapped(action) }
+        row.setOnClickListener { actionDispatcher.dispatch(action) }
         binding.actionsContainer.addView(row)
 
         val divider = View(this).apply {
@@ -130,27 +132,6 @@ class ActionsActivity : AppCompatActivity() {
             setBackgroundColor(getColor(R.color.divider))
         }
         binding.actionsContainer.addView(divider)
-    }
-
-    private fun onActionTapped(action: ActionDefinition) {
-        if (action.dangerLevel == DangerLevel.CONFIRM) {
-            AlertDialog.Builder(this)
-                .setTitle(action.label)
-                .setMessage(getString(R.string.confirm_action_message, action.label))
-                .setPositiveButton(R.string.action_confirm) { _, _ -> sendAction(action) }
-                .setNegativeButton(R.string.action_cancel, null)
-                .show()
-        } else {
-            sendAction(action)
-        }
-    }
-
-    private fun sendAction(action: ActionDefinition) {
-        if (!transportManager.bluetooth.isConnected) {
-            Toast.makeText(this, R.string.error_not_connected, Toast.LENGTH_SHORT).show()
-            return
-        }
-        transportManager.bluetooth.send(ProtocolMessage.command(action.id).toBytes())
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
