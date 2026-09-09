@@ -28,7 +28,11 @@ logical-grid models, while retaining the complete Actions screen for
 manual coverage of all 27 commands. TASK-008 turns that fixed dashboard into
 an editable one: a coarser **6x4 grid**, an explicit **Edit Mode** with
 drag/resize/add/remove, page create/rename/delete/reorder, a Daily Overview
-widget, and JSON layout persistence with Reset to Default.
+widget, and JSON layout persistence with Reset to Default. TASK-009 adds the
+return direction: the Mac now pushes **live CPU/RAM telemetry and Now Playing
+metadata** to the tablet over the same BLE link, so the placeholder widgets
+show real values. TASK-009A adds request-driven, resized album artwork with a
+bounded binary BLE transfer and caches on both devices.
 
 ## Overall architecture
 
@@ -38,15 +42,20 @@ Android tablet (BLE central)
     └─ ui/dashboard/       ViewPager2, grid/page/widget renderers, edit gestures
          └─ dashboard/     UI-independent page/widget/6x4 grid data, editor,
                            serializer and layout store
-              └─ actions/  ActionLibrary metadata + shared ActionDispatcher
-                   └─ transport/ + ble/
-                        BluetoothTransport, protocol messages and allowlist
+              └─ live/     DesktopStateStore — one shared source of live
+                           telemetry/media state (never persisted)
+                   └─ actions/  ActionLibrary metadata + shared ActionDispatcher
+                        └─ transport/ + ble/
+                             BluetoothTransport, protocol messages and allowlist
                                   ⇅ BLE
 macOS agent (BLE peripheral)
   App/                     menu-bar lifecycle and login item
     └─ BLE/                PeripheralManager
          └─ Protocol/      ProtocolMessage + AliControlAction IDs
               └─ Control/  ActionRegistry + platform-specific controllers
+              └─ Live/     LiveStatePublisher — one 2 s sampler, wire messages
+                   └─ Telemetry/  CPU + memory samplers (Mach APIs)
+                   └─ Media/      Apple Music / Spotify providers + selection
 
 Android kiosk/ and device/ remain independent supporting layers for immersive
 mode, boot launch, keep-awake, and tablet-local settings/status.
@@ -114,6 +123,49 @@ truncated, unparseable garbage before TASK-003's physical testing caught it.
   that isn't a complete, closed `{...}` object up front, so a
   hypothetically-truncated payload can never be misread as a smaller-but-valid
   message instead of failing outright.
+
+### Live state protocol (TASK-009)
+
+The desktop→tablet direction reuses the **same state characteristic** as the
+command acknowledgements above — no new UUID, no change to MTU negotiation or
+reconnect behaviour. Messages are told apart by their `type`, and each side
+ignores the other family entirely (`LiveStateMessage` returns null for a
+`state` ack; `ProtocolMessage` sees a `metrics` message as a type it doesn't
+act on). Three new types:
+
+```json
+{"type":"metrics","cpu":34,"memory":48}
+{"type":"media","available":true,"source":"spotify","playing":true,"position":83,"duration":214}
+{"type":"track","title":"Song","artist":"Artist","album":"Album"}
+```
+
+An **omitted metric means unavailable**, never zero — that distinction is what
+lets a widget choose between `0%` and `--`. GPU and temperatures are currently
+always omitted by the macOS agent (see below), but the fields exist so a
+future Windows agent needs no protocol change.
+
+**Payload-size strategy.** Track metadata is the only unbounded content in the
+protocol, and an oversized notification would be truncated by the stack —
+possibly mid-UTF-8, producing invalid JSON. Two mechanisms together make that
+impossible:
+
+1. **Two semantic messages.** Playback state (small, changes every tick) is
+   separate from track identity (larger, changes rarely, sent only when the
+   track actually changes). The frequent message therefore carries no
+   unbounded text at all.
+2. **Bounded UTF-8 fields.** Title/artist/album are truncated to fixed
+   *escaped-byte* budgets (48/36/26) on whole grapheme boundaries, so a
+   multi-byte character or an emoji cluster is never cut in half, and a title
+   full of quotes can't expand past the budget once escaped.
+
+Every live message is designed to stay under **160 bytes** (verified by tests)
+against the ~182 usable at the negotiated MTU of 185, and `PeripheralManager`
+independently refuses to write any notification larger than the connected
+central's own `maximumUpdateValueLength` — dropping one telemetry update is
+always better than corrupting the stream, since another follows two seconds
+later. Application-level fragmentation was deliberately **not** built: a
+reassembly buffer with sequence numbers and timeouts is real BLE-reliability
+risk for text that wouldn't fit a 7-inch dashboard tile anyway.
 
 ### Connection readiness & reconnection
 
@@ -419,10 +471,57 @@ silently removed. A future Windows agent only needs a real
 connected-platform signal in place of today's constant.
 
 Action icons come from one `ActionIconRegistry` backed entirely by small local
-vector drawables. CPU/GPU/RAM and gauge shells deliberately show `--`, media
-deliberately says `Media unavailable`, and the slider shell has no thumb or
-value: nothing here fabricates telemetry, volume state, media metadata, or
-artwork.
+vector drawables. The slider shell still has no thumb or value, and nothing
+anywhere fabricates a reading: a value the desktop cannot measure renders as
+`--`, not as a plausible-looking number.
+
+#### Live desktop state (TASK-009)
+
+`live/DesktopStateStore` is the single, application-scoped source of live
+data. It is created once by `AliControlApp` and owns **one** BLE listener for
+the whole app. Widgets never subscribe to the transport, never parse a
+payload, and never own a timer — they register a small update closure
+(`LiveWidgetBindings`) while being built, and the store's state is pushed
+through those closures. That is what makes a CPU tile on the Dashboard page
+and another on the Dev page show the same number: they are two renderings of
+one value, not two subscriptions.
+
+`DesktopState` is deliberately **separate from the dashboard layout model**.
+Layout is user configuration that is persisted to `dashboard_prefs`; live
+telemetry is volatile and is never written anywhere. Nothing about TASK-008's
+schema changed for TASK-009 — a METRIC widget still stores only its label
+("CPU"/"GPU"/"RAM"), and `MetricType.forLabel` resolves that to a reading at
+render time, so there was no migration and no telemetry leaking into a saved
+layout.
+
+The store also merges the two media messages: playback updates carry no text
+and must not wipe the track metadata a previous `track` message delivered,
+while an `available:false` update clears both, so a title can never sit next
+to "unavailable".
+
+Rendering:
+
+| Widget | Live behaviour |
+|---|---|
+| METRIC | `34%` / `48%`, or `--` when the desktop can't measure it |
+| GAUGE | Same value plus a flat bar whose fill is a layout weight — one cheap layout pass every 2 s, no animation, no chart library |
+| MEDIA | Real title, `Artist — Album`, a `1:23 ▁▁▁▃▁▁ 3:34` progress row, and a play/pause glyph that follows the real playback state |
+
+Media transport buttons are **unchanged**: they still send `previous_track`,
+`play_pause` and `next_track` through `ActionLibrary` and the shared
+`ActionDispatcher`. Live metadata is a display channel only; TASK-009 added no
+second media-control path.
+
+**Disconnect** clears everything — metrics return to `--`, media returns to
+`Media unavailable` — and connecting also clears, so state from a previous
+session is never inherited. **Reconnect** simply resumes: the Mac restarts its
+sampler on re-subscribe and the widgets recover without the dashboard being
+rebuilt or the app restarted. Editing, page management and Device/Settings all
+keep working while disconnected.
+
+Data that stops arriving while the link still looks up is expired after 10 s
+(five missed samples) by a single app-wide check, so a stalled desktop can't
+leave a stale CPU figure on screen pretending to be current.
 
 **Actions screen (TASK-006, temporary):** `ActionsActivity` lists every
 action from `ActionLibrary` that supports macOS, grouped by category, built
@@ -674,18 +773,168 @@ registers the service and starts advertising itself as soon as Bluetooth
 reports `.poweredOn`. There is no "Start Server" button and never was one —
 nothing to click, nothing to poll for readiness.
 
+### Live telemetry (TASK-009)
+
+One `LiveStatePublisher` samples every **2 seconds** and runs **only while a
+tablet is subscribed** — `PeripheralManager` starts it on `didSubscribeTo` and
+stops it on `didUnsubscribeFrom` and on Bluetooth power-off. An unattended Mac
+does no telemetry work at all: no timer, no Mach calls, no Apple events. The
+interval is one constant (`LiveStatePublisher.defaultInterval`).
+
+Sampling runs on a dedicated serial queue, deliberately not the main queue, so
+an unresponsive media application can never stall CoreBluetooth's delegate
+callbacks and delay a command acknowledgement. (`NSAppleScript` is not
+thread-safe, so every scripting call is made from that one queue and never
+concurrently.)
+
+| Metric | Source | Status |
+|---|---|---|
+| **CPU** | `host_statistics(HOST_CPU_LOAD_INFO)` — one Mach call, no subprocess | Available. Usage is the busy share (user + system + **nice**) of the ticks elapsed since the previous sample, so the first sample after start has no baseline and reports nothing. |
+| **RAM** | `host_statistics64(HOST_VM_INFO64)` | Available. See the definition below. |
+| **GPU** | — | **Unavailable by design** |
+| **CPU/GPU temperature** | — | **Unavailable by design** |
+
+**How RAM "used" is calculated.** This mirrors Activity Monitor's *Memory
+Used*, so the tablet's number matches what the user can verify on their own
+screen:
+
+```text
+used     = (internal_page_count − purgeable_count)   // app memory
+         + wire_count                                // wired
+         + compressor_page_count                     // compressed
+percent  = used × vm_page_size / ProcessInfo.physicalMemory × 100
+```
+
+Purgeable pages are subtracted because the kernel can reclaim them on demand.
+File-backed cache (`external_page_count`) is excluded — macOS deliberately
+fills spare RAM with cache, so including it would pin the reading near 100% on
+every healthy machine. This is a *usage* figure, not memory *pressure*;
+presenting one as the other would be misleading.
+
+**Why GPU and temperatures stay `--`.** macOS exposes no public API for
+either. `powermetrics` needs root and a process per sample; GPU "Device
+Utilization %" lives in undocumented `IOAccelerator`/`AGXAccelerator`
+IORegistry keys Apple has already renamed across Apple Silicon generations;
+Apple Silicon thermal sensors moved behind the private
+`IOHIDEventSystemClient`, with per-chip key layouts. Every one of those is
+either root-only, private, or fragile — exactly what TASK-009 rules out — so
+these stay unavailable rather than becoming a number that looks real. The
+model and wire format still carry the fields, so a Windows agent (where GPU
+counters *are* public) can populate them with no change on either side.
+
+### Now Playing (TASK-009)
+
+A provider architecture over the two supported local players:
+
+| Application | Bundle id | Fields |
+|---|---|---|
+| **Apple Music** (`Music.app`) | `com.apple.Music` | title, artist, album, playback state, position, duration |
+| **Spotify** | `com.spotify.client` | title, artist, album, playback state, position, duration |
+
+Both use one read-only AppleScript query per tick that reads properties and
+returns a separator-delimited string — it never starts, pauses or changes
+playback. Numbers are rounded to integers *inside* AppleScript, because a real
+number would serialize with the system decimal separator and break parsing
+under a comma-decimal locale. Spotify reports duration in milliseconds and
+Apple Music in seconds; both are normalized to whole seconds.
+
+Two behaviours matter:
+
+- **A non-running app is never scripted.** `tell application "Spotify"` would
+  *launch* Spotify. `NSWorkspace`'s running-application list (no permission,
+  cannot launch anything) is checked first, every time.
+- **Automation denial is latched.** If the user declines the prompt, macOS
+  returns `errAEEventNotPermitted` forever after; the provider records that
+  and stops issuing Apple events for the rest of the process's life, so a
+  2-second sampler can't become a permission-prompt loop.
+
+**Selection policy** (evaluated fresh each sample, no user choice required):
+
+1. only running applications are consulted at all;
+2. a player that is actually *playing* wins — and if more than one is, the
+   source chosen last time keeps priority, which is what stops two open
+   players from fighting over the widget;
+3. otherwise the previously chosen source keeps the widget as long as it still
+   has a track loaded (pausing shouldn't hand the display to an idle app);
+4. otherwise the first source in priority order with a track — Apple Music,
+   then Spotify;
+5. otherwise nothing: the tablet shows "Media unavailable".
+
+The sticky preference lives only in memory and is reset when telemetry stops,
+so a reconnect re-evaluates from scratch.
+
+### Media artwork over BLE (TASK-009A)
+
+Artwork remains local and request-driven. Apple Music exposes the bytes of its
+current artwork through its local AppleScript dictionary, so the provider reads
+those bytes only when the track identity changes. Spotify's local dictionary
+exposes only a remote artwork URL; because this project does not use HTTP,
+cloud APIs, private cache paths, or the Spotify Web API, Spotify metadata works
+normally and its artwork honestly remains unavailable.
+
+The Mac center-crops artwork to a square, resizes it to **160×160**, and encodes
+JPEG at quality **0.60**, then **0.40**, then **0.25** until it is at most
+**20 KiB**. If it still cannot meet that ceiling it is skipped. `artworkId` is
+the lowercase hexadecimal form of the first eight bytes of SHA-256 over the
+*final compressed bytes*, making it stable across tracks that share the same
+image and independently verifiable on Android. Processed results and confirmed
+no-art outcomes are held in an 8-entry LRU cache, so neither AppleScript nor
+JPEG work repeats for the same track.
+
+Track metadata carries only that ID. Android checks its own memory cache and
+sends the following closed request only on a miss:
+
+```json
+{"type":"artwork_request","artworkId":"0123456789abcdef"}
+```
+
+The Mac only answers IDs already present in its processed-artwork cache. The
+request cannot name a path, filename or URL. A transfer consists of an
+`artwork_begin` JSON envelope, ordered binary chunks, and an `artwork_end`
+envelope. Each binary frame is:
+
+```text
+0xAC | 0x01 | artworkId (8 raw bytes) | chunk index (uint16 big-endian) | JPEG bytes
+```
+
+The 12-byte header is subtracted from the subscribed central's real
+`maximumUpdateValueLength` (with the existing 160-byte notification ceiling),
+and every control and binary frame is checked against that negotiated limit.
+CoreBluetooth `false` backpressure pauses immediately with the rejected frame
+still at the head; sending resumes only from
+`peripheralManagerIsReady(toUpdateSubscribers:)`. Command acknowledgements and
+live state use the high-priority queue and always drain before artwork.
+
+Android validates ID, MIME type, declared size (maximum **20 KiB**), chunk
+count (maximum **512**), exact sequential indices, accumulated byte count and
+the final content hash before decoding. It allocates one declared-size receive
+buffer, decodes only completed JPEGs after a bounds pass, uses `RGB_565`, and
+keeps at most 8 bitmaps / 1 MiB decoded memory in an access-ordered LRU cache.
+A disconnect or different artwork ID discards the partial buffer; cached
+completed artwork survives reconnect. The widget only renders a bitmap whose
+ID still matches current metadata, shows artwork in medium/large MEDIA widgets,
+keeps the polished music-note placeholder when missing, and leaves the compact
+Dashboard action group unchanged.
+
+Artwork/state sampling runs on the existing serial live-state queue. The media
+provider re-reads track identity after artwork retrieval; if the track changed
+mid-fetch, the old bytes and old metadata are both discarded and retried on the
+next normal tick. A confirmed new artwork identity also cancels a queued older
+transfer before the new track notification is sent.
+
 ### Permissions
 
 | Permission | Why | Requested how |
 |---|---|---|
 | **Bluetooth** (`NSBluetoothAlwaysUsageDescription`) | `CBPeripheralManager` needs it to advertise/accept connections at all | macOS prompts automatically the first time the app runs; declared in the bundle's real `Contents/Info.plist` (see packaging above — no longer a linker-embedded workaround) |
+| **Automation** (`NSAppleEventsUsageDescription`) | Reading Now Playing metadata from Music/Spotify (TASK-009) | macOS prompts **once**, the first time the agent asks a *running* media app what's playing. Declining is handled gracefully: that provider is never asked again, the media widget stays unavailable, and telemetry plus all 27 actions keep working normally. |
 
-Bluetooth-only at the *system-permission* level, as preferred — there is
-exactly one `NSUsageDescription` key in `Info.plist`. **Accessibility is
-never requested anywhere in this code** (no `AXIsProcessTrustedWithOptions`
-call, no `AXUIElement` usage) — `AccessibilityChecker` only ever *reads*
-`AXIsProcessTrusted()`. `Open at Login`'s `SMAppService` needs no extra
-entitlement or usage-description key for the `mainApp` variant used here.
+No Screen Recording, no Full Disk Access, no root, and nothing that requires
+an entitlement. **Accessibility is never requested anywhere in this code** (no
+`AXIsProcessTrustedWithOptions` call, no `AXUIElement` usage) —
+`AccessibilityChecker` only ever *reads* `AXIsProcessTrusted()`.
+`Open at Login`'s `SMAppService` needs no extra entitlement or
+usage-description key for the `mainApp` variant used here.
 
 14 of the 27 actions (see the action library table above) *behave*
 differently depending on whether the user has separately granted
@@ -775,11 +1024,28 @@ same room:
    → Privacy & Security → Accessibility) and confirm an Accessibility-gated
    action (e.g. Copy) fails cleanly with an error ack, while Volume Up right
    after it still works — then re-grant and confirm Copy works again.
-11. Disconnect BLE and confirm remote dashboard widgets disable while the
-    dashboard, Device/Settings, All Actions, metrics, and clock remain visible;
+10b. **Live data (TASK-009).** Confirm CPU and RAM change from `--` to real
+    values within a few seconds of connecting, and that CPU rises under load
+    (e.g. `yes > /dev/null` in a Terminal, then Ctrl-C). Confirm GPU stays
+    `--` and that no temperature value appears anywhere. Open Spotify or
+    Apple Music, start a track, and grant the one-time Automation prompt:
+    confirm title, artist and playback state appear, and position/duration
+    advance roughly every 2 s. Use the tablet's Play/Pause, Next and Previous
+    and confirm the widget follows (including the play/pause glyph). Confirm
+    the Dashboard's compact controls and the Media page show the *same*
+    state. Decline (or revoke in System Settings → Privacy & Security →
+    Automation) and confirm media goes unavailable while CPU/RAM keep
+    updating and every action still works.
+11. Disconnect BLE and confirm remote dashboard widgets disable, CPU/RAM/GPU
+    return to `--` and media returns to "Media unavailable", while the
+    dashboard, Device/Settings, All Actions, and clock remain visible;
     confirm **Edit mode still works fully while disconnected** (move, resize,
-    add, remove, page management, Reset); reconnect and confirm actions recover
-    without restarting the app.
+    add, remove, page management, Reset); reconnect and confirm actions and
+    live values recover without restarting the app.
+11b. Swipe repeatedly between pages for a minute and confirm values stay
+    consistent with no duplicate sampling; then leave both machines idle for
+    several minutes and confirm `AliControlMac` stays near-idle in Activity
+    Monitor and produces no repeating log output.
 12. Force-quit `AliControlMac.app` (or use its Quit menu item) — confirm
     Android detects the disconnect immediately (no stale "Connected").
 13. Relaunch the Mac app — confirm Android can reconnect (either the bounded
@@ -848,3 +1114,25 @@ following still need the real tablet and a real Mac together to confirm:
 - **Layout persistence across a real app restart/reboot.** The serializer and
   store are unit-tested against an in-memory implementation; the actual
   `SharedPreferences` read/write path on the tablet is not.
+- **Live telemetry end to end.** The CPU/memory arithmetic, the wire format,
+  the payload budget, provider selection and every disconnect/reconnect rule
+  are unit-tested on both sides with fakes, and the memory sampler is
+  exercised against the real kernel. What has *not* been observed is the full
+  loop on real hardware: whether a real Mach CPU reading tracks Activity
+  Monitor closely, and how the 2-second notification cadence behaves over a
+  real BLE link alongside command traffic.
+- **Automation prompt behaviour.** The denial path is unit-tested through a
+  fake runner, but the real one-time macOS prompt (and what a real
+  `errAEEventNotPermitted` looks like from Music vs. Spotify) has not been
+  triggered — doing so would modify real TCC state on this machine.
+- **Media metadata is bounded**, so a very long title/artist/album is
+  truncated on the desktop before sending (48/36/26 escaped bytes). This is
+  deliberate, not a bug: see the payload-size strategy above.
+- **Media position updates every ~2 s** and is not interpolated on the tablet
+  between updates. A smoother bar would need a per-widget animation timer,
+  which TASK-009 explicitly rules out.
+- **If MTU negotiation ever fails** and the link stays at the 23-byte default,
+  live-state notifications are dropped by the size guard rather than sent
+  truncated — widgets would simply stay at `--`. Commands are already
+  unusable in that state (TASK-005 refuses to send them), so this is
+  consistent, not a new failure mode.

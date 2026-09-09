@@ -13,7 +13,8 @@
 - [x] TASK-006 — Action Library Foundation
 - [x] TASK-007 — Multi-Page Dashboard & Widget UI Foundation
 - [x] TASK-008 — Dashboard Refinement & Customization Engine
-- [ ] TASK-009 — Live System & Media Data
+- [x] TASK-009 — Live System & Media Data
+- [x] TASK-009A — Media Artwork over BLE
 - [ ] TASK-010 — Dashboard Modes & Profiles
 - [ ] TASK-011 — Themes & Visual Customization
 - [ ] TASK-012 — Advanced System Controls
@@ -29,32 +30,27 @@
 
 ## Planned Feature Direction
 
-### TASK-008 — Dashboard Refinement & Customization Engine
-
-- 6×4 logical dashboard grid
-- edit mode
-- drag/reposition widgets
-- resize widgets
-- add/remove widgets
-- action picker
-- page creation/deletion/rename/reordering
-- layout persistence
-- Reset to Default
-- Daily Overview widget
-- refined default Dashboard
-- top control row visual consistency
-
 ### TASK-009 — Live System & Media Data
+
+Bring the existing placeholder widgets to life.
+
+Planned:
 
 - CPU usage
 - RAM usage
-- GPU usage where available
-- temperatures where available
-- live Now Playing metadata
-- artist/title
+- GPU usage where reliably available
+- temperatures where reliably available without unsafe/private hacks
+- Now Playing title
+- artist
+- album where available
 - playback state
-- media progress
-- album artwork if practical over the chosen transport
+- media progress/duration where available
+- live widget updates over the existing BLE connection
+
+No fabricated metrics.
+
+Album artwork was deliberately split into TASK-009A and delivered there with a
+bounded, request-driven BLE transfer rather than expanding TASK-009's live JSON.
 
 ### TASK-010 — Dashboard Modes & Profiles
 
@@ -71,23 +67,22 @@ Each mode may contain its own:
 - widgets
 - layout
 - actions
-- future theme/accent configuration
+- future visual configuration
 
-Future optional automatic mode suggestions may react to active applications,
-but automatic switching should not be required.
+Future automatic mode suggestions may react to active applications, but automatic
+switching is not required.
 
 ### TASK-011 — Themes & Visual Customization
 
-Future visual customization may include:
+Potential additions:
 
 - accent color
 - card styles
-- widget appearance
-- icon styles
+- widget styles
 - background styles
 - lightweight ambient effects
 - micro-animations
-- mode-specific visual appearance
+- mode-specific appearance
 
 Performance must remain suitable for the MT6580 tablet.
 
@@ -95,7 +90,7 @@ Performance must remain suitable for the MT6580 tablet.
 
 Potential additions:
 
-- additional media/system actions
+- additional desktop controls
 - display controls
 - system presets
 - application workflows
@@ -111,9 +106,9 @@ Hardware-dependent features may include:
 - temperature sensors
 - fan profiles
 - hardware monitoring
-- platform/vendor adapters
+- vendor/platform adapters
 
-Implementation will depend on macOS/Windows hardware capabilities.
+Implementation depends on actual hardware and platform capability.
 
 ### TASK-014 — AI Developer Integrations
 
@@ -132,7 +127,7 @@ Potential developer control center features:
 
 The tablet must send only predefined workflow/action IDs.
 
-Do not expose arbitrary shell execution.
+No arbitrary shell execution.
 
 ### TASK-015 — Weather & Calendar Integrations
 
@@ -145,8 +140,8 @@ Potential integrations:
 - Daily Overview event list
 - next-event information
 
-The current Daily Overview widget should remain functional with placeholder
-states until these integrations are implemented.
+The Daily Overview widget should continue working with placeholder states until
+these integrations are implemented.
 
 ---
 
@@ -157,5 +152,5 @@ states until these integrations are implemented.
 Windows support is intentionally deferred until Windows hardware is available
 for physical testing.
 
-The existing platform-aware Action Library and dashboard architecture should
-remain reusable for the future Windows implementation.
+The platform-aware Action Library, dashboard, telemetry models, and widget
+architecture should remain reusable for the future Windows implementation.

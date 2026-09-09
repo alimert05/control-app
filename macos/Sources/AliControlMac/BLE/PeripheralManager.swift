@@ -43,15 +43,44 @@ final class PeripheralManager: NSObject {
     private(set) var subscribedCentralIdentifier: String?
 
     private let dispatcher: CommandDispatcher
+    private let livePublisher: LiveStatePublisher
     private var peripheralManager: CBPeripheralManager!
     private var stateCharacteristic: CBMutableCharacteristic?
     private var subscribedCentral: CBCentral?
-    private var pendingNotifications: [Data] = []
 
-    init(dispatcher: CommandDispatcher = CommandDispatcher()) {
+    /// Command acks and live metrics/media/track updates are high priority;
+    /// artwork chunks are low priority, so a large image transfer can never
+    /// make a button press feel unresponsive — see `PriorityNotificationQueue`.
+    private let notificationQueue = PriorityNotificationQueue()
+    private(set) var activeArtworkTransferId: String?
+    private var isArtworkFlushScheduled = false
+    private var artworkFlushGeneration = 0
+
+    /// Latched so a central with an unexpectedly small MTU can't turn a
+    /// dropped notification into a per-tick log loop.
+    private var hasLoggedOversizedNotification = false
+
+    init(
+        dispatcher: CommandDispatcher = CommandDispatcher(),
+        livePublisher: LiveStatePublisher = LiveStatePublisher()
+    ) {
         self.dispatcher = dispatcher
+        self.livePublisher = livePublisher
         super.init()
         peripheralManager = CBPeripheralManager(delegate: self, queue: nil)
+
+        // The publisher samples on its own serial queue; every BLE call has
+        // to happen back on the main queue, where CoreBluetooth delivers its
+        // delegate callbacks for this manager.
+        livePublisher.onMessage = { [weak self] data in
+            DispatchQueue.main.async { self?.sendLiveState(data) }
+        }
+        livePublisher.onArtworkChanged = { [weak self] artworkId in
+            DispatchQueue.main.async {
+                guard let self, self.activeArtworkTransferId != artworkId else { return }
+                self.cancelArtworkTransfer()
+            }
+        }
     }
 
     // MARK: - Service setup
@@ -105,21 +134,127 @@ final class PeripheralManager: NSObject {
     // MARK: - Sending state/ack messages
 
     private func sendState(_ message: ProtocolMessage) {
-        pendingNotifications.append(message.encoded())
+        notificationQueue.enqueueHighPriority(message.encoded())
         flushPendingNotifications()
     }
 
+    /// Queues one live-state notification (telemetry/media), after checking
+    /// it actually fits.
+    ///
+    /// `LiveWireLimits` already bounds every field so an oversized payload is
+    /// impossible by construction — this is the backstop that guarantees the
+    /// stack is never handed something it would silently truncate mid-JSON
+    /// (and possibly mid-UTF-8) if that ever stopped being true, e.g. if a
+    /// central negotiated an unexpectedly small MTU. Dropping one telemetry
+    /// update is always better than corrupting the state stream: another
+    /// sample follows two seconds later.
+    private func sendLiveState(_ data: Data) {
+        guard let central = subscribedCentral else { return }
+
+        let limit = min(central.maximumUpdateValueLength, LiveWireLimits.maxNotificationBytes)
+        guard data.count <= limit else {
+            if !hasLoggedOversizedNotification {
+                hasLoggedOversizedNotification = true
+                logDebug("dropping \(data.count)B live-state notification — exceeds \(limit)B limit")
+            }
+            return
+        }
+
+        notificationQueue.enqueueHighPriority(data)
+        flushPendingNotifications()
+    }
+
+    /// Handles an `artwork_request`: validates the id, looks it up in the
+    /// live publisher's cache, and — only if both succeed — replaces
+    /// whatever artwork transfer might already be queued with this one.
+    ///
+    /// "Only a known artworkId" is enforced structurally, not by a
+    /// permission check: [ArtworkPipeline.lookup] is a dictionary read
+    /// keyed by content hash. There is no code path from this string to a
+    /// filesystem path, a filename, or a URL — an id that isn't already in
+    /// the cache simply finds nothing, and nothing is sent.
+    private func handleArtworkRequest(_ message: ArtworkRequestMessage) {
+        guard let artwork = livePublisher.processedArtwork(for: message.artworkId) else {
+            logDebug("artwork_request for unknown id — ignored")
+            return
+        }
+        guard let central = subscribedCentral else { return }
+
+        let chunkPayloadSize = ArtworkTransferSession.chunkPayloadSize(maximumUpdateValueLength: central.maximumUpdateValueLength)
+        guard let frames = ArtworkTransferSession.buildFrames(
+            artworkId: artwork.artworkId,
+            mimeType: artwork.mimeType,
+            payload: artwork.data,
+            maxChunkPayloadBytes: chunkPayloadSize
+        ) else {
+            logDebug("could not build artwork frames for \(message.artworkId) (chunk payload \(chunkPayloadSize)B)")
+            return
+        }
+        guard ArtworkTransferSession.frames(frames, fitWithin: central.maximumUpdateValueLength) else {
+            logDebug("could not send artwork frames within negotiated \(central.maximumUpdateValueLength)B limit")
+            return
+        }
+
+        // A new transfer wholesale-replaces any transfer still queued —
+        // whether that's a genuine re-request or Android having moved on to
+        // a different track's artwork, the old one is no longer wanted.
+        activeArtworkTransferId = artwork.artworkId
+        notificationQueue.replaceLowPriority(with: frames)
+        flushPendingNotifications()
+    }
+
+    /// Drives `notificationQueue` against the real `CBPeripheralManager`.
     /// `updateValue(_:for:onSubscribedCentrals:)` can return false if the
     /// underlying transmit queue is full; the correct response (per Apple's
     /// docs) is to hold the value and retry from
-    /// `peripheralManagerIsReady(toUpdateSubscribers:)`, not to drop it.
+    /// `peripheralManagerIsReady(toUpdateSubscribers:)`, not to drop it — see
+    /// `PriorityNotificationQueue.flush(send:)` for the (separately tested)
+    /// pause/resume and priority behavior this delegates to.
     private func flushPendingNotifications() {
         guard let stateCharacteristic else { return }
-        while let next = pendingNotifications.first {
-            let sent = peripheralManager.updateValue(next, for: stateCharacteristic, onSubscribedCentrals: nil)
-            guard sent else { return }
-            pendingNotifications.removeFirst()
+        let accepted = notificationQueue.flush { data in
+            peripheralManager.updateValue(data, for: stateCharacteristic, onSubscribedCentrals: nil)
         }
+        if !accepted {
+            // Invalidate any already-enqueued run-loop continuation. Once
+            // CoreBluetooth says false, *nothing* retries until its readiness
+            // delegate callback explicitly calls this method again.
+            artworkFlushGeneration += 1
+            isArtworkFlushScheduled = false
+            return
+        }
+        if !notificationQueue.isLowPriorityActive {
+            activeArtworkTransferId = nil
+            return
+        }
+
+        // When there was no CoreBluetooth backpressure, yield one main-run-
+        // loop turn before the next artwork frame. That gives incoming
+        // command writes and their high-priority ACKs a deterministic chance
+        // to jump ahead. When updateValue returned false, schedule nothing:
+        // only peripheralManagerIsReady may resume the exact retained frame.
+        if accepted && !isArtworkFlushScheduled {
+            isArtworkFlushScheduled = true
+            artworkFlushGeneration += 1
+            let generation = artworkFlushGeneration
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.artworkFlushGeneration == generation else { return }
+                self.isArtworkFlushScheduled = false
+                self.flushPendingNotifications()
+            }
+        }
+    }
+
+    /// Drops any in-flight/queued artwork transfer without sending an
+    /// `artwork_end` — used on disconnect and unsubscribe. Android's own
+    /// disconnect handling independently discards its receive buffer, so no
+    /// explicit "cancelled" message is needed on the wire.
+    private func cancelArtworkTransfer() {
+        notificationQueue.clearLowPriority()
+        activeArtworkTransferId = nil
+        artworkFlushGeneration += 1
+        isArtworkFlushScheduled = false
     }
 
     /// Local stderr line for debugging — never sent over BLE, and only ever
@@ -148,7 +283,9 @@ extension PeripheralManager: CBPeripheralManagerDelegate {
             stateCharacteristic = nil
             subscribedCentral = nil
             subscribedCentralIdentifier = nil
-            pendingNotifications.removeAll()
+            notificationQueue.clearAll()
+            activeArtworkTransferId = nil
+            livePublisher.stop()
             status = .poweredOff
         case .unauthorized:
             status = .unauthorized
@@ -173,9 +310,13 @@ extension PeripheralManager: CBPeripheralManagerDelegate {
         guard characteristic.uuid == AliControlBleProfile.stateCharacteristicUUID else { return }
         subscribedCentral = central
         subscribedCentralIdentifier = String(central.identifier.uuidString.prefix(8))
+        hasLoggedOversizedNotification = false
         status = .subscribed
         logDebug("tablet connected (\(subscribedCentralIdentifier ?? "?"))")
         sendState(.state(status: "connected"))
+        // Telemetry exists only while someone is listening: sampling starts
+        // here and stops again the moment the tablet unsubscribes.
+        livePublisher.start()
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral, didUnsubscribeFrom characteristic: CBCharacteristic) {
@@ -184,7 +325,9 @@ extension PeripheralManager: CBPeripheralManagerDelegate {
             subscribedCentral = nil
             subscribedCentralIdentifier = nil
         }
-        pendingNotifications.removeAll()
+        notificationQueue.clearAll()
+        cancelArtworkTransfer()
+        livePublisher.stop()
         status = .advertising
         logDebug("tablet disconnected")
     }
@@ -211,6 +354,16 @@ extension PeripheralManager: CBPeripheralManagerDelegate {
             guard let data = request.value else {
                 logDebug("received write request with no payload")
                 sendState(.state(status: "error"))
+                continue
+            }
+            // Checked first: an artwork_request has an `artworkId` field no
+            // real command carries, so this can never misfire against
+            // {"type":"command",...}. Handled entirely separately from the
+            // command path — no ack is sent either way, since a request
+            // isn't a command and its "reply" is either an artwork transfer
+            // or silence.
+            if let artworkRequest = ArtworkRequestMessage.decode(data) {
+                handleArtworkRequest(artworkRequest)
                 continue
             }
             guard let message = ProtocolMessage.decode(data) else {

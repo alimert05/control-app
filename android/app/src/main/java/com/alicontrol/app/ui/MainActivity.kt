@@ -23,6 +23,8 @@ import com.alicontrol.app.dashboard.WidgetConfig
 import com.alicontrol.app.dashboard.WidgetType
 import com.alicontrol.app.databinding.ActivityMainBinding
 import com.alicontrol.app.kiosk.KioskController
+import com.alicontrol.app.live.DesktopState
+import com.alicontrol.app.live.DesktopStateStore
 import com.alicontrol.app.transport.BluetoothTransport
 import com.alicontrol.app.transport.TransportListener
 import com.alicontrol.app.transport.TransportManager
@@ -54,9 +56,17 @@ class MainActivity : AppCompatActivity(), DashboardEditListener, DashboardEditDi
     private lateinit var transportManager: TransportManager
     private lateinit var kioskController: KioskController
     private lateinit var store: DashboardStore
+    private lateinit var desktopState: DesktopStateStore
     private lateinit var pagerAdapter: DashboardPagerAdapter
     private lateinit var dotsIndicator: DotsIndicator
     private lateinit var dialogs: DashboardEditDialogs
+
+    /**
+     * Forwards shared live desktop state into the currently bound pages. The
+     * Activity never parses a payload or holds a timer — it is a relay
+     * between the one application-scoped store and the widgets on screen.
+     */
+    private val desktopStateListener = DesktopStateStore.Listener { state -> pagerAdapter.submitLiveState(state) }
 
     private var dashboard: Dashboard = Dashboard(emptyList())
     private var editState = DashboardEditState()
@@ -103,6 +113,7 @@ class MainActivity : AppCompatActivity(), DashboardEditListener, DashboardEditDi
         setContentView(binding.root)
 
         transportManager = (application as AliControlApp).transportManager
+        desktopState = (application as AliControlApp).desktopStateStore
         kioskController = KioskController(this)
         dialogs = DashboardEditDialogs(this)
         store = DashboardStore(SharedPreferencesLayoutPersistence(this))
@@ -119,12 +130,17 @@ class MainActivity : AppCompatActivity(), DashboardEditListener, DashboardEditDi
         kioskController.applyImmersiveMode(window)
         kioskController.applyKeepAwake(window)
         transportManager.bluetooth.addListener(transportListener)
+        // Subscribing pushes the current state immediately, so a screen
+        // returning to the foreground shows live values right away instead of
+        // waiting for the next desktop update.
+        desktopState.addListener(desktopStateListener)
         refreshStatus()
     }
 
     override fun onPause() {
         super.onPause()
         transportManager.bluetooth.removeListener(transportListener)
+        desktopState.removeListener(desktopStateListener)
     }
 
     override fun onDestroy() {

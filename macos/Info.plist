@@ -25,5 +25,14 @@
     <true/>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>Ali Control advertises itself over Bluetooth Low Energy so the Ali Control tablet app can find it, connect, and send control commands (volume, mute, play/pause, opening Terminal).</string>
+    <!--
+      Required from macOS 10.14 for the one-time Automation prompt shown when
+      Ali Control asks Music or Spotify what is currently playing. It only
+      ever reads Now Playing metadata, and only from an app that is already
+      running. Declining simply leaves the media widget unavailable — system
+      telemetry and every remote action keep working.
+    -->
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Ali Control reads the current track title, artist and playback state from Music or Spotify so the tablet's Now Playing widget can display them. It never starts or changes playback this way.</string>
 </dict>
 </plist>

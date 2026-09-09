@@ -6,6 +6,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.recyclerview.widget.RecyclerView
 import com.alicontrol.app.dashboard.DashboardPage
+import com.alicontrol.app.live.DesktopState
 
 /**
  * Feeds [DashboardPage]s into a `ViewPager2`.
@@ -15,6 +16,12 @@ import com.alicontrol.app.dashboard.DashboardPage
  * after an edit costs little, and it removes a whole class of bugs where a
  * stale view keeps a widget's old position, connection state or selection
  * highlight. The model is the only source of truth for what's on screen.
+ *
+ * Live desktop data is the one thing that does *not* rebuild a page.
+ * [submitLiveState] pushes new values through the per-page
+ * [LiveWidgetBindings] collected at render time, so a CPU reading arriving
+ * every two seconds updates a couple of `TextView`s rather than re-inflating
+ * the dashboard.
  */
 class DashboardPagerAdapter(
     private val renderer: DashboardPageRenderer,
@@ -24,25 +31,32 @@ class DashboardPagerAdapter(
     private var pages: List<DashboardPage> = emptyList()
     private var isConnected: Boolean = false
     private var editState: DashboardEditState = DashboardEditState()
+    private var liveState: DesktopState = DesktopState.EMPTY
 
-    class PageViewHolder(val container: FrameLayout) : RecyclerView.ViewHolder(container)
+    /** The page views currently bound, so live updates reach exactly them. */
+    private val boundHolders = mutableSetOf<PageViewHolder>()
 
-    /**
-     * Replaces everything the adapter renders. Any change to pages,
-     * connection or edit state comes through here.
-     *
-     * `notifyDataSetChanged` is deliberate rather than lazy: a single edit can
-     * change the page count (create/delete), the order (reorder), one page's
-     * widgets, or the state every page renders with, and there are at most a
-     * handful of tiny pages. A blanket rebuild is both cheaper to reason about
-     * and immune to the stale-view bugs finer-grained notifications invite.
-     */
+    class PageViewHolder(val container: FrameLayout) : RecyclerView.ViewHolder(container) {
+        val bindings = LiveWidgetBindings()
+    }
+
+    /** Replaces everything the adapter renders. Any change to pages, connection or edit state comes through here. */
     @SuppressLint("NotifyDataSetChanged")
     fun submit(pages: List<DashboardPage>, isConnected: Boolean, editState: DashboardEditState) {
         this.pages = pages
         this.isConnected = isConnected
         this.editState = editState
         notifyDataSetChanged()
+    }
+
+    /**
+     * Pushes the latest desktop state into every bound page. No page is
+     * re-inflated and no widget is recreated — this only writes new text and
+     * bar widths into views that already exist.
+     */
+    fun submitLiveState(state: DesktopState) {
+        liveState = state
+        for (holder in boundHolders) holder.bindings.apply(state)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PageViewHolder {
@@ -54,17 +68,30 @@ class DashboardPagerAdapter(
 
     override fun onBindViewHolder(holder: PageViewHolder, position: Int) {
         holder.container.removeAllViews()
-        val page = pages[position]
+        // Old closures point at views that are about to be discarded.
+        holder.bindings.clear()
+
         holder.container.addView(
             renderer.render(
                 LayoutInflater.from(holder.container.context),
                 holder.container,
-                page,
+                pages[position],
                 isConnected,
                 editState,
-                editListener
+                editListener,
+                holder.bindings
             )
         )
+        boundHolders.add(holder)
+        // A page arriving mid-session (a swipe, or a rebuild after an edit)
+        // starts from current state rather than an empty one.
+        holder.bindings.apply(liveState)
+    }
+
+    override fun onViewRecycled(holder: PageViewHolder) {
+        boundHolders.remove(holder)
+        holder.bindings.clear()
+        super.onViewRecycled(holder)
     }
 
     override fun getItemCount(): Int = pages.size

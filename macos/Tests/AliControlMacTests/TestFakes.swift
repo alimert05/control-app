@@ -84,3 +84,79 @@ struct FakeControllers {
         media.calls + system.calls + apps.calls + window.calls + productivity.calls
     }
 }
+
+// MARK: - TASK-009 live-state fakes
+//
+// None of these touch real CPU counters, real media applications, or real
+// AppleScript. `swift test` never starts playback, never prompts for
+// Automation, and never needs Music or Spotify installed.
+
+import Foundation
+
+final class FakeTelemetryProvider: TelemetryProviding {
+    var next: SystemMetrics = SystemMetrics()
+    private(set) var sampleCount = 0
+
+    func sample() -> SystemMetrics {
+        sampleCount += 1
+        return next
+    }
+}
+
+final class FakeMediaProvider: MediaProviding {
+    let source: MediaSource
+    var isRunning: Bool
+    var state: MediaState?
+    var artworkData: Data?
+    var onFetchArtwork: (() -> Void)?
+    private(set) var currentStateCallCount = 0
+    private(set) var fetchArtworkCallCount = 0
+
+    init(source: MediaSource, isRunning: Bool = true, state: MediaState? = nil, artworkData: Data? = nil) {
+        self.source = source
+        self.isRunning = isRunning
+        self.state = state
+        self.artworkData = artworkData
+    }
+
+    func currentState() -> MediaState? {
+        currentStateCallCount += 1
+        return state
+    }
+
+    func fetchArtworkData() -> Data? {
+        fetchArtworkCallCount += 1
+        onFetchArtwork?()
+        return artworkData
+    }
+}
+
+final class FakeAppleScriptRunner: AppleScriptRunning {
+    var result: Result<String, AppleScriptFailure>
+    var dataResult: Result<Data, AppleScriptFailure>
+    private(set) var runCount = 0
+    private(set) var runDataCount = 0
+
+    init(result: Result<String, AppleScriptFailure> = .failure(.unavailable), dataResult: Result<Data, AppleScriptFailure> = .failure(.unavailable)) {
+        self.result = result
+        self.dataResult = dataResult
+    }
+
+    func run(_ source: String) -> Result<String, AppleScriptFailure> {
+        runCount += 1
+        return result
+    }
+
+    func runData(_ source: String) -> Result<Data, AppleScriptFailure> {
+        runDataCount += 1
+        return dataResult
+    }
+}
+
+struct FakeWorkspace: RunningApplicationChecking {
+    var runningBundleIdentifiers: Set<String> = []
+
+    func isRunning(bundleIdentifier: String) -> Bool {
+        runningBundleIdentifiers.contains(bundleIdentifier)
+    }
+}

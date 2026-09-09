@@ -119,7 +119,73 @@ final class ProtocolFixtureTests: XCTestCase {
         XCTAssertTrue(fakes.allCalls.isEmpty)
     }
 
+    // MARK: - TASK-009 live-state fixtures
+    //
+    // The JSON literals asserted here must match the ones parsed in
+    // android/app/src/test/java/com/alicontrol/app/ble/ProtocolFixtureTest.kt.
+    // Live state shares the state characteristic with the acks above, so
+    // these also pin the fact that the two message families stay distinct.
+
+    func testSerializesMetricsAndroidCanParse() throws {
+        let object = try liveJsonObject(MetricsMessage(SystemMetrics(cpuPercent: 34, memoryPercent: 48)))
+
+        XCTAssertEqual(object["type"] as? String, "metrics")
+        XCTAssertEqual(object["cpu"] as? Int, 34)
+        XCTAssertEqual(object["memory"] as? Int, 48)
+        XCTAssertEqual(object.count, 3)
+    }
+
+    func testSerializesPlaybackAndroidCanParse() throws {
+        let state = MediaState(
+            source: .spotify, playbackState: .playing, title: "Song",
+            positionSeconds: 83, durationSeconds: 214
+        )
+
+        let object = try liveJsonObject(PlaybackMessage(state))
+
+        XCTAssertEqual(object["type"] as? String, "media")
+        XCTAssertEqual(object["available"] as? Bool, true)
+        XCTAssertEqual(object["source"] as? String, "spotify")
+        XCTAssertEqual(object["playing"] as? Bool, true)
+        XCTAssertEqual(object["position"] as? Int, 83)
+        XCTAssertEqual(object["duration"] as? Int, 214)
+    }
+
+    func testSerializesUnavailableMediaAndroidCanParse() throws {
+        let object = try liveJsonObject(PlaybackMessage(nil))
+
+        XCTAssertEqual(object["type"] as? String, "media")
+        XCTAssertEqual(object["available"] as? Bool, false)
+        XCTAssertEqual(object.count, 2)
+    }
+
+    func testSerializesTrackAndroidCanParse() throws {
+        let state = MediaState(source: .appleMusic, playbackState: .playing, title: "Song", artist: "Artist", album: "Album")
+
+        let object = try liveJsonObject(TrackMessage(state))
+
+        XCTAssertEqual(object["type"] as? String, "track")
+        XCTAssertEqual(object["title"] as? String, "Song")
+        XCTAssertEqual(object["artist"] as? String, "Artist")
+        XCTAssertEqual(object["album"] as? String, "Album")
+    }
+
+    func testLiveStateMessagesUseTypeNamesDistinctFromTheCommandProtocol() {
+        // Android tells them apart by `type` alone, so these three names must
+        // never collide with "command" or "state".
+        let liveTypes = Set([MetricsMessage.type, PlaybackMessage.type, TrackMessage.type])
+
+        XCTAssertFalse(liveTypes.contains(ProtocolMessage.typeCommand))
+        XCTAssertFalse(liveTypes.contains(ProtocolMessage.typeState))
+        XCTAssertEqual(liveTypes.count, 3)
+    }
+
     private func jsonObject(_ message: ProtocolMessage) throws -> [String: Any] {
         try XCTUnwrap(try JSONSerialization.jsonObject(with: message.encoded()) as? [String: Any])
+    }
+
+    private func liveJsonObject(_ message: some Encodable) throws -> [String: Any] {
+        let data = try XCTUnwrap(message.encodedLiveState())
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 }

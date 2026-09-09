@@ -25,6 +25,10 @@ import com.alicontrol.app.dashboard.DashboardWidget
 import com.alicontrol.app.dashboard.ShortcutDestination
 import com.alicontrol.app.dashboard.WidgetConfig
 import com.alicontrol.app.icons.ActionIconRegistry
+import com.alicontrol.app.live.LiveValueFormatter
+import com.alicontrol.app.live.MediaState
+import com.alicontrol.app.live.MetricType
+import com.alicontrol.app.live.artwork.BitmapArtworkImage
 import com.alicontrol.app.ui.ActionsActivity
 import com.alicontrol.app.ui.DeviceSettingsActivity
 import com.alicontrol.app.ui.dashboard.DashboardGridLayout.Companion.setGridPosition
@@ -73,7 +77,8 @@ class DashboardWidgetViewFactory(
         widget: DashboardWidget,
         isConnected: Boolean,
         editState: DashboardEditState = DashboardEditState(),
-        editListener: DashboardEditListener? = null
+        editListener: DashboardEditListener? = null,
+        bindings: LiveWidgetBindings? = null
     ): View {
         val editing = editState.isEditing
         val selected = editState.isSelected(widget.id)
@@ -91,11 +96,11 @@ class DashboardWidgetViewFactory(
         val content: View = when (val config = widget.config) {
             is WidgetConfig.Action -> buildActionContent(config.actionId, size, interactive = !editing)
             is WidgetConfig.ActionGroup -> buildActionRow(config.actionIds, interactive = !editing)
-            is WidgetConfig.Metric -> buildMetricContent(config.label, size)
-            is WidgetConfig.Gauge -> buildGaugeContent(config.label, size)
+            is WidgetConfig.Metric -> buildMetricContent(config.label, size, bindings)
+            is WidgetConfig.Gauge -> buildGaugeContent(config.label, size, bindings)
             is WidgetConfig.Clock -> buildClockContent(config.showDate && widget.gridHeight >= 2, size)
             is WidgetConfig.DailyOverview -> buildDailyOverviewContent(config, widget)
-            is WidgetConfig.Media -> buildMediaContent(config, interactive = !editing)
+            is WidgetConfig.Media -> buildMediaContent(config, widget, interactive = !editing, bindings = bindings)
             is WidgetConfig.Slider -> buildSliderContent(config.label)
             is WidgetConfig.Shortcut -> buildShortcutContent(config, size, interactive = !editing)
         }
@@ -246,45 +251,87 @@ class DashboardWidgetViewFactory(
 
     // -- METRIC --
 
-    private fun buildMetricContent(label: String, size: SizeClass): View = LinearLayout(activity).apply {
-        orientation = LinearLayout.VERTICAL
-        gravity = Gravity.CENTER
-        addView(captionView(label, if (size == SizeClass.COMPACT) 9f else 11f))
-        addView(TextView(activity).apply {
+    private fun buildMetricContent(label: String, size: SizeClass, bindings: LiveWidgetBindings?): View {
+        val metric = MetricType.forLabel(label)
+        val valueView = TextView(activity).apply {
             text = activity.getString(R.string.value_placeholder)
             setTextColor(ContextCompat.getColor(activity, R.color.text_primary))
             textSize = if (size == SizeClass.COMPACT) 16f else 22f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setPadding(0, dp(2), 0, 0)
-        })
+        }
+        // The widget owns no timer and no subscription: it just re-renders
+        // whatever the shared DesktopState says, whenever that changes.
+        bindings?.register { state ->
+            valueView.text = LiveValueFormatter.metric(metric.valueIn(state.metrics), metric.unit)
+        }
+
+        return LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            addView(captionView(label, if (size == SizeClass.COMPACT) 9f else 11f))
+            addView(valueView)
+        }
     }
 
-    // -- GAUGE (unavailable shell — no real telemetry, no animation) --
+    // -- GAUGE --
 
-    private fun buildGaugeContent(label: String, size: SizeClass): View = LinearLayout(activity).apply {
-        orientation = LinearLayout.VERTICAL
-        gravity = Gravity.CENTER
-        setPadding(dp(8), dp(4), dp(8), dp(4))
-        addView(captionView(label, if (size == SizeClass.COMPACT) 9f else 11f))
-        // A static, empty track: the honest "no data" state, drawn once. A
-        // real gauge arrives with TASK-009's live data, not with fake motion.
-        addView(View(activity).apply {
+    /**
+     * A flat bar whose fill is a weight, so a value change is one cheap
+     * layout pass every couple of seconds — no custom drawing, no chart
+     * library, and nothing animating between updates.
+     */
+    private fun buildGaugeContent(label: String, size: SizeClass, bindings: LiveWidgetBindings?): View {
+        val metric = MetricType.forLabel(label)
+
+        val fill = View(activity).apply {
+            background = GradientDrawable().apply {
+                cornerRadius = dp(3).toFloat()
+                setColor(ContextCompat.getColor(activity, R.color.accent))
+            }
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0f)
+        }
+        val remainder = View(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+        }
+        val track = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
             background = GradientDrawable().apply {
                 cornerRadius = dp(3).toFloat()
                 setColor(ContextCompat.getColor(activity, R.color.divider))
             }
+            addView(fill)
+            addView(remainder)
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(5)).apply {
                 topMargin = dp(6)
             }
-        })
-        addView(TextView(activity).apply {
+        }
+        val valueView = TextView(activity).apply {
             text = activity.getString(R.string.value_placeholder)
             setTextColor(ContextCompat.getColor(activity, R.color.text_secondary))
             textSize = 11f
             gravity = Gravity.CENTER
             setPadding(0, dp(4), 0, 0)
-        })
+        }
+
+        bindings?.register { state ->
+            val value = metric.valueIn(state.metrics)
+            valueView.text = LiveValueFormatter.metric(value, metric.unit)
+            val fraction = value?.coerceIn(0, 100)?.let { it / 100f } ?: 0f
+            (fill.layoutParams as LinearLayout.LayoutParams).weight = fraction
+            (remainder.layoutParams as LinearLayout.LayoutParams).weight = 1f - fraction
+            track.requestLayout()
+        }
+
+        return LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            addView(captionView(label, if (size == SizeClass.COMPACT) 9f else 11f))
+            addView(track)
+            addView(valueView)
+        }
     }
 
     // -- CLOCK / DAILY_OVERVIEW (minute-boundary updates only — no high-frequency timer) --
@@ -422,25 +469,189 @@ class DashboardWidgetViewFactory(
 
     // -- MEDIA --
 
-    private fun buildMediaContent(config: WidgetConfig.Media, interactive: Boolean): View {
-        val column = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(4), dp(10), dp(4), dp(6))
-        }
-        column.addView(captionView(activity.getString(R.string.widget_now_playing), 11f))
-        column.addView(TextView(activity).apply {
+    /**
+     * The Now Playing widget: real title/artist/album and a progress bar when
+     * the desktop reports them, an honest "Media unavailable" when it
+     * doesn't, and the same three transport buttons either way.
+     *
+     * Those buttons are unchanged — they still send `previous_track`,
+     * `play_pause` and `next_track` through [ActionLibrary] and the existing
+     * dispatcher. Live metadata is a *display* channel; it introduced no
+     * second media-control path.
+     */
+    private fun buildMediaContent(
+        config: WidgetConfig.Media,
+        widget: DashboardWidget,
+        interactive: Boolean,
+        bindings: LiveWidgetBindings?
+    ): View {
+        val roomy = widget.gridHeight >= 3
+        val showArtwork = widget.gridWidth >= 3 && widget.gridHeight >= 2
+
+        val titleView = TextView(activity).apply {
             text = activity.getString(R.string.widget_media_unavailable)
             setTextColor(ContextCompat.getColor(activity, R.color.text_primary))
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setPadding(0, dp(6), 0, 0)
-        })
-        column.addView(View(activity), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        column.addView(
-            buildActionRow(listOf(config.previousActionId, config.playPauseActionId, config.nextActionId), interactive),
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(MIN_TOUCH_TARGET_DP))
+            textSize = if (roomy) 16f else 14f
+            gravity = if (showArtwork) Gravity.START else Gravity.CENTER
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(dp(8), if (showArtwork) 0 else dp(6), dp(8), 0)
+        }
+        val subtitleView = TextView(activity).apply {
+            setTextColor(ContextCompat.getColor(activity, R.color.text_secondary))
+            textSize = 12f
+            gravity = if (showArtwork) Gravity.START else Gravity.CENTER
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            visibility = View.GONE
+            setPadding(dp(8), dp(2), dp(8), 0)
+        }
+
+        val artworkView = if (showArtwork) ImageView(activity).apply {
+            val side = dp(if (roomy) 76 else 54)
+            layoutParams = LinearLayout.LayoutParams(side, side).apply { marginEnd = dp(10) }
+            scaleType = ImageView.ScaleType.CENTER
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setImageResource(R.drawable.ic_music_note)
+            imageTintList = ColorStateList.valueOf(ContextCompat.getColor(activity, R.color.text_secondary))
+            contentDescription = activity.getString(R.string.widget_now_playing)
+        } else null
+
+        val metadataColumn = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(titleView)
+            addView(subtitleView)
+        }
+        val metadata = if (artworkView != null) {
+            LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(10), dp(6), dp(10), 0)
+                addView(artworkView)
+                addView(metadataColumn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            }
+        } else metadataColumn
+
+        val positionView = timeLabel()
+        val durationView = timeLabel()
+        val progressFill = View(activity).apply {
+            background = GradientDrawable().apply {
+                cornerRadius = dp(2).toFloat()
+                setColor(ContextCompat.getColor(activity, R.color.accent))
+            }
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0f)
+        }
+        val progressRemainder = View(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+        }
+        val progressTrack = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = GradientDrawable().apply {
+                cornerRadius = dp(2).toFloat()
+                setColor(ContextCompat.getColor(activity, R.color.divider))
+            }
+            addView(progressFill)
+            addView(progressRemainder)
+            layoutParams = LinearLayout.LayoutParams(0, dp(4), 1f).apply {
+                marginStart = dp(8)
+                marginEnd = dp(8)
+            }
+        }
+        val progressRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.GONE
+            setPadding(dp(8), dp(6), dp(8), 0)
+            addView(positionView)
+            addView(progressTrack)
+            addView(durationView)
+        }
+
+        val actionRow = buildActionRow(
+            listOf(config.previousActionId, config.playPauseActionId, config.nextActionId),
+            interactive
         )
-        return column
+
+        bindings?.register { state ->
+            val media = state.media
+            bindMediaText(media, titleView, subtitleView)
+            artworkView?.let { bindMediaArtwork(it, media.artworkId, state.artwork.imageFor(media.artworkId)) }
+            bindMediaProgress(media, progressRow, progressFill, progressRemainder, progressTrack, positionView, durationView)
+            bindPlayPauseIcon(actionRow, config.playPauseActionId, media)
+        }
+
+        return LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(4), dp(8), dp(4), dp(6))
+            addView(captionView(activity.getString(R.string.widget_now_playing), 11f))
+            addView(metadata)
+            addView(progressRow)
+            addView(View(activity), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(actionRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(MIN_TOUCH_TARGET_DP)))
+        }
+    }
+
+    private fun bindMediaArtwork(view: ImageView, artworkId: String?, image: com.alicontrol.app.live.artwork.ArtworkImage?) {
+        val bitmap = (image as? BitmapArtworkImage)?.bitmap
+        if (artworkId != null && bitmap != null) {
+            view.setPadding(0, 0, 0, 0)
+            view.imageTintList = null
+            view.scaleType = ImageView.ScaleType.CENTER_CROP
+            view.setImageBitmap(bitmap)
+        } else {
+            view.setPadding(dp(12), dp(12), dp(12), dp(12))
+            view.scaleType = ImageView.ScaleType.CENTER
+            view.setImageResource(R.drawable.ic_music_note)
+            view.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(activity, R.color.text_secondary))
+        }
+    }
+
+    private fun bindMediaText(media: MediaState, titleView: TextView, subtitleView: TextView) {
+        if (media.isAvailable && media.hasTrackMetadata) {
+            titleView.text = media.title
+            val subtitle = LiveValueFormatter.artistLine(media.artist, media.album)
+            subtitleView.text = subtitle.orEmpty()
+            subtitleView.visibility = if (subtitle == null) View.GONE else View.VISIBLE
+        } else {
+            titleView.text = activity.getString(R.string.widget_media_unavailable)
+            subtitleView.visibility = View.GONE
+        }
+    }
+
+    private fun bindMediaProgress(
+        media: MediaState,
+        progressRow: View,
+        fill: View,
+        remainder: View,
+        track: View,
+        positionView: TextView,
+        durationView: TextView
+    ) {
+        val fraction = LiveValueFormatter.progressFraction(media.positionSeconds, media.durationSeconds)
+        if (!media.isAvailable || fraction == null) {
+            progressRow.visibility = View.GONE
+            return
+        }
+        progressRow.visibility = View.VISIBLE
+        positionView.text = LiveValueFormatter.time(media.positionSeconds)
+        durationView.text = LiveValueFormatter.time(media.durationSeconds)
+        (fill.layoutParams as LinearLayout.LayoutParams).weight = fraction
+        (remainder.layoutParams as LinearLayout.LayoutParams).weight = 1f - fraction
+        track.requestLayout()
+    }
+
+    /** Shows a pause glyph while something is playing, so the button reflects live state. */
+    private fun bindPlayPauseIcon(actionRow: View, playPauseActionId: String, media: MediaState) {
+        val icon = actionRow.findViewWithTag<ImageView>(playPauseActionId) ?: return
+        val playing = media.isAvailable && media.isPlaying
+        icon.setImageResource(if (playing) R.drawable.ic_pause else ActionIconRegistry.iconFor(playPauseActionId))
+    }
+
+    private fun timeLabel(): TextView = TextView(activity).apply {
+        text = LiveValueFormatter.UNAVAILABLE_TIME
+        setTextColor(ContextCompat.getColor(activity, R.color.text_secondary))
+        textSize = 10f
     }
 
     // -- SLIDER (visual foundation only; never fakes a value) --
@@ -533,6 +744,9 @@ class DashboardWidgetViewFactory(
         setImageResource(ActionIconRegistry.iconFor(actionId))
         imageTintList = ColorStateList.valueOf(ContextCompat.getColor(activity, R.color.text_primary))
         layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp))
+        // Tagged with its action id so a live binding can find one specific
+        // icon later (the media widget swaps play/pause with playback state).
+        tag = actionId
     }
 
     private fun labelView(text: String, sizeSp: Float): TextView = TextView(activity).apply {

@@ -21,9 +21,9 @@ data class ProtocolMessage(
 
     fun toJson(): String = buildString {
         append('{')
-        append("\"type\":\"").append(escape(type)).append('"')
-        action?.let { append(",\"action\":\"").append(escape(it)).append('"') }
-        status?.let { append(",\"status\":\"").append(escape(it)).append('"') }
+        append("\"type\":\"").append(JsonFields.escape(type)).append('"')
+        action?.let { append(",\"action\":\"").append(JsonFields.escape(it)).append('"') }
+        status?.let { append(",\"status\":\"").append(JsonFields.escape(it)).append('"') }
         append('}')
     }
 
@@ -47,26 +47,14 @@ data class ProtocolMessage(
             // mid-transmission) can still "successfully" parse as long as the
             // first field it contains happens to be well-formed, silently
             // hiding real transport-level corruption instead of failing safely.
-            if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null
+            if (!JsonFields.isCompleteObject(trimmed)) return null
 
-            val type = extractField(trimmed, "type") ?: return null
+            val type = JsonFields.string(trimmed, "type") ?: return null
             return ProtocolMessage(
                 type = type,
-                action = extractField(trimmed, "action"),
-                status = extractField(trimmed, "status")
+                action = JsonFields.string(trimmed, "action"),
+                status = JsonFields.string(trimmed, "status")
             )
         }
-
-        private fun extractField(json: String, field: String): String? {
-            val regex = Regex("\"${Regex.escape(field)}\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
-            val raw = regex.find(json)?.groupValues?.get(1) ?: return null
-            return unescape(raw)
-        }
-
-        private fun escape(value: String): String =
-            value.replace("\\", "\\\\").replace("\"", "\\\"")
-
-        private fun unescape(value: String): String =
-            value.replace("\\\"", "\"").replace("\\\\", "\\")
     }
 }
