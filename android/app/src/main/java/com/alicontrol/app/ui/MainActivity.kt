@@ -9,6 +9,7 @@ import androidx.viewpager2.widget.ViewPager2
 import com.alicontrol.app.AliControlApp
 import com.alicontrol.app.R
 import com.alicontrol.app.actions.ActionDispatcher
+import com.alicontrol.app.actions.Platform
 import com.alicontrol.app.ble.AliControlCommands
 import com.alicontrol.app.ble.ProtocolMessage
 import com.alicontrol.app.dashboard.Dashboard
@@ -21,6 +22,9 @@ import com.alicontrol.app.dashboard.ShortcutDestination
 import com.alicontrol.app.dashboard.SharedPreferencesLayoutPersistence
 import com.alicontrol.app.dashboard.WidgetConfig
 import com.alicontrol.app.dashboard.WidgetType
+import com.alicontrol.app.dashboard.profile.ProfileCollection
+import com.alicontrol.app.dashboard.profile.ProfileSession
+import com.alicontrol.app.dashboard.profile.ProfileStore
 import com.alicontrol.app.databinding.ActivityMainBinding
 import com.alicontrol.app.kiosk.KioskController
 import com.alicontrol.app.live.DesktopState
@@ -35,16 +39,24 @@ import com.alicontrol.app.ui.dashboard.DashboardPageRenderer
 import com.alicontrol.app.ui.dashboard.DashboardPagerAdapter
 import com.alicontrol.app.ui.dashboard.DashboardWidgetViewFactory
 import com.alicontrol.app.ui.dashboard.DotsIndicator
+import com.alicontrol.app.ui.dashboard.ProfileDialogs
 
 /**
- * Ali Control's primary screen: the multi-page widget dashboard, and (TASK-008)
- * its editor.
+ * Ali Control's primary screen: the multi-page widget dashboard, its editor
+ * (TASK-008) and its profiles (TASK-010).
  *
- * The Activity deliberately owns no layout rules of its own. It holds the
- * current [Dashboard] value, routes every user gesture through
+ * The Activity deliberately owns no layout rules of its own. It shows the
+ * *active profile's* [Dashboard], routes every user gesture through
  * [DashboardEditor] — which decides whether a move/resize/add/page change is
- * legal — and persists whatever comes back through [DashboardStore]. Anything
- * rejected surfaces as a short explanation and leaves the layout untouched.
+ * legal — and hands whatever comes back to the [ProfileSession], which stores it
+ * as that profile's dashboard and persists it. Anything rejected surfaces as a
+ * short explanation and leaves the layout untouched.
+ *
+ * Profiles are presentation only. Switching one swaps which dashboard the
+ * (single) pager renders; it does not touch the BLE transport, the
+ * application-scoped [DesktopStateStore] or the artwork cache, so connection,
+ * telemetry, media and artwork carry straight over — the freshly rendered pages
+ * pick the current state up from the adapter, which already holds it.
  *
  * Editing is entirely local: it never needs (or touches) the BLE connection,
  * so a disconnected tablet is still fully customizable, while remote action
@@ -55,20 +67,29 @@ class MainActivity : AppCompatActivity(), DashboardEditListener, DashboardEditDi
     private lateinit var binding: ActivityMainBinding
     private lateinit var transportManager: TransportManager
     private lateinit var kioskController: KioskController
-    private lateinit var store: DashboardStore
+    private lateinit var profileSession: ProfileSession
     private lateinit var desktopState: DesktopStateStore
     private lateinit var pagerAdapter: DashboardPagerAdapter
     private lateinit var dotsIndicator: DotsIndicator
     private lateinit var dialogs: DashboardEditDialogs
+    private lateinit var profileDialogs: ProfileDialogs
 
     /**
      * Forwards shared live desktop state into the currently bound pages. The
      * Activity never parses a payload or holds a timer — it is a relay
      * between the one application-scoped store and the widgets on screen.
      */
-    private val desktopStateListener = DesktopStateStore.Listener { state -> pagerAdapter.submitLiveState(state) }
+    private val desktopStateListener = DesktopStateStore.Listener { state ->
+        pagerAdapter.submitLiveState(state)
+        showDesktopName(state.desktop.name)
+    }
 
-    private var dashboard: Dashboard = Dashboard(emptyList())
+    /** The PC's own name from its `desktop_info`, preferred over the Bluetooth device name in the header. */
+    private var announcedDesktopName: String? = null
+
+    /** What is on screen and what Edit Mode edits: always the active profile's own dashboard. */
+    private val dashboard: Dashboard get() = profileSession.dashboard
+
     private var editState = DashboardEditState()
 
     /**
@@ -94,7 +115,7 @@ class MainActivity : AppCompatActivity(), DashboardEditListener, DashboardEditDi
             if (message.type != ProtocolMessage.TYPE_STATE) return
             val action = message.action ?: return
             val status = message.status ?: return
-            Toast.makeText(this@MainActivity, getString(R.string.mac_ack_format, action, status), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@MainActivity, getString(R.string.desktop_ack_format, action, status), Toast.LENGTH_SHORT).show()
         }
 
         override fun onError(message: String) {
@@ -115,9 +136,16 @@ class MainActivity : AppCompatActivity(), DashboardEditListener, DashboardEditDi
         transportManager = (application as AliControlApp).transportManager
         desktopState = (application as AliControlApp).desktopStateStore
         kioskController = KioskController(this)
-        dialogs = DashboardEditDialogs(this)
-        store = DashboardStore(SharedPreferencesLayoutPersistence(this))
-        dashboard = store.load()
+        dialogs = DashboardEditDialogs(this) { connectedPlatform() }
+        profileDialogs = ProfileDialogs(this, dialogs)
+        // The profile document has its own key; the pre-profile single layout is read once, through
+        // the same prefs file, only to migrate it into the Default profile (see ProfileStore).
+        profileSession = ProfileSession(
+            ProfileStore(
+                SharedPreferencesLayoutPersistence(this, SharedPreferencesLayoutPersistence.PROFILES_KEY),
+                legacyLayout = DashboardStore(SharedPreferencesLayoutPersistence(this))
+            )
+        )
 
         setupDashboard()
         setupControls()
@@ -167,7 +195,11 @@ class MainActivity : AppCompatActivity(), DashboardEditListener, DashboardEditDi
     // -- setup --
 
     private fun setupDashboard() {
-        val widgetFactory = DashboardWidgetViewFactory(this, ActionDispatcher(this, transportManager))
+        val widgetFactory = DashboardWidgetViewFactory(
+            this,
+            ActionDispatcher(this, transportManager),
+            desktopInfo = { desktopState.state.desktop }
+        )
         pagerAdapter = DashboardPagerAdapter(DashboardPageRenderer(widgetFactory), this)
         binding.dashboardPager.adapter = pagerAdapter
         binding.dashboardPager.registerOnPageChangeCallback(pageChangeCallback)
@@ -181,6 +213,7 @@ class MainActivity : AppCompatActivity(), DashboardEditListener, DashboardEditDi
         binding.deviceSettingsButton.setOnClickListener { startActivity(Intent(this, DeviceSettingsActivity::class.java)) }
         binding.allActionsButton.setOnClickListener { startActivity(Intent(this, ActionsActivity::class.java)) }
 
+        binding.profileButton.setOnClickListener { showProfileSelector() }
         binding.editButton.setOnClickListener { setEditing(true) }
         binding.doneButton.setOnClickListener { setEditing(false) }
         binding.addWidgetButton.setOnClickListener { showWidgetPicker() }
@@ -191,7 +224,11 @@ class MainActivity : AppCompatActivity(), DashboardEditListener, DashboardEditDi
 
     // -- edit mode --
 
-    private fun setEditing(enabled: Boolean) {
+    /**
+     * [render] is false only for a caller that is about to render something else anyway (a
+     * profile switch leaves Edit Mode and then shows the new profile — one render, not two).
+     */
+    private fun setEditing(enabled: Boolean, render: Boolean = true) {
         editState = DashboardEditState(isEditing = enabled, selectedWidgetId = null)
         binding.normalControls.visibility = if (enabled) View.GONE else View.VISIBLE
         binding.editControls.visibility = if (enabled) View.VISIBLE else View.GONE
@@ -202,7 +239,7 @@ class MainActivity : AppCompatActivity(), DashboardEditListener, DashboardEditDi
         // paging moves to the explicit arrows instead of a swipe.
         binding.dashboardPager.isUserInputEnabled = !enabled
         updateConnectionButtons()
-        renderDashboard()
+        if (render) renderDashboard()
     }
 
     private fun stepPage(offset: Int) {
@@ -350,32 +387,38 @@ class MainActivity : AppCompatActivity(), DashboardEditListener, DashboardEditDi
         }
     }
 
+    /** "Reset to default" in the page menu resets the *active profile's* layout — never another profile. */
     override fun onResetToDefault() {
-        dialogs.showResetConfirm {
-            dashboard = store.resetToDefault()
-            editState = editState.copy(selectedWidgetId = null)
-            renderDashboard()
-            binding.dashboardPager.setCurrentItem(0, false)
-            updatePageChrome(0)
-        }
+        profileDialogs.showResetConfirm(profileSession.activeProfile, onConfirm = {
+            resetProfile(profileSession.activeProfile.id)
+        })
     }
 
     // -- applying edits --
 
     private fun applyPageEdit(result: EditResult<DashboardPage>) {
         when (result) {
-            is EditResult.Success -> {
-                dashboard = dashboard.withPage(result.value)
-                persistAndRender()
-            }
+            is EditResult.Success -> commitDashboard(dashboard.withPage(result.value))
             is EditResult.Rejected -> showRejection(result.reason)
         }
     }
 
     private fun applyDashboardEdit(result: EditResult<Dashboard>): Boolean = when (result) {
+        is EditResult.Success -> commitDashboard(result.value)
+        is EditResult.Rejected -> {
+            showRejection(result.reason)
+            false
+        }
+    }
+
+    /**
+     * Stores an edited dashboard as the active profile's own (persisting it in the same step)
+     * and re-renders. Every successful edit is therefore already saved, which is why leaving
+     * Edit Mode — including to switch profile — has nothing left to flush.
+     */
+    private fun commitDashboard(updated: Dashboard): Boolean = when (val result = profileSession.updateActiveDashboard(updated)) {
         is EditResult.Success -> {
-            dashboard = result.value
-            persistAndRender()
+            renderDashboard()
             true
         }
         is EditResult.Rejected -> {
@@ -384,16 +427,128 @@ class MainActivity : AppCompatActivity(), DashboardEditListener, DashboardEditDi
         }
     }
 
-    private fun persistAndRender() {
-        store.save(dashboard)
-        renderDashboard()
-    }
-
     private fun renderDashboard() {
         val connected = transportManager.bluetooth.isConnected
         renderedConnected = connected
         pagerAdapter.submit(dashboard.orderedPages, connected, editState)
         updatePageChrome(binding.dashboardPager.currentItem)
+        updateProfileChrome()
+    }
+
+    // -- profiles --
+
+    private fun updateProfileChrome() {
+        val name = profileSession.activeProfile.name
+        if (binding.profileButton.text.toString() != name) binding.profileButton.text = name
+    }
+
+    private fun showProfileSelector() {
+        profileDialogs.showSelector(
+            anchor = binding.profileButton,
+            collection = profileSession.collection,
+            onSelect = { profileId -> switchProfile(profileId) },
+            onManage = { showProfileManager() }
+        )
+    }
+
+    /**
+     * Opens Manage Profiles. Edit Mode is left first: the manager can reset, delete or replace
+     * the very profile being edited, so it must never run over live editing state.
+     */
+    private fun showProfileManager() {
+        if (editState.isEditing) setEditing(false)
+        profileDialogs.showManager(profileCallbacks)
+    }
+
+    /**
+     * Switches to [profileId]: leave Edit Mode if active (every edit was already saved as it
+     * was made, so nothing is discarded), make the profile active and remember it as the last
+     * selected one, then show its dashboard from its first page.
+     *
+     * This deliberately touches nothing live — no disconnect, no reconnect, no change to the
+     * [DesktopStateStore], telemetry, media, artwork or capability state — and renders only the
+     * new profile (the others stay serialized data).
+     */
+    private fun switchProfile(profileId: String) {
+        if (profileId == profileSession.activeProfile.id) return
+        if (editState.isEditing) setEditing(false, render = false)
+        when (val result = profileSession.switchTo(profileId)) {
+            is EditResult.Success -> showActiveProfile()
+            is EditResult.Rejected -> {
+                // Edit Mode was already left without rendering; make the pages match the controls.
+                renderDashboard()
+                showRejection(result.reason)
+            }
+        }
+    }
+
+    /** Renders the active profile from its preferred page — its first — and refreshes the page chrome. */
+    private fun showActiveProfile() {
+        editState = editState.copy(selectedWidgetId = null)
+        renderDashboard()
+        binding.dashboardPager.setCurrentItem(0, false)
+        updatePageChrome(0)
+    }
+
+    private fun resetProfile(profileId: String) {
+        val isActive = profileId == profileSession.activeProfile.id
+        when (val result = profileSession.resetProfile(profileId)) {
+            is EditResult.Success -> if (isActive) showActiveProfile()
+            is EditResult.Rejected -> showProfileRejection(result.reason)
+        }
+    }
+
+    /** Profile-level rejections; a blank name is a *profile* name here, not a page name. */
+    private fun showProfileRejection(reason: EditRejection) {
+        if (reason == EditRejection.INVALID_NAME) {
+            Toast.makeText(this, R.string.edit_rejected_invalid_profile_name, Toast.LENGTH_SHORT).show()
+        } else {
+            showRejection(reason)
+        }
+    }
+
+    private val profileCallbacks = object : ProfileDialogs.Callbacks {
+        override fun profiles(): ProfileCollection = profileSession.collection
+
+        override fun onSwitchProfile(profileId: String) = switchProfile(profileId)
+
+        override fun onCreateProfile(name: String) {
+            val result = profileSession.createProfile(name)
+            if (result is EditResult.Rejected) showProfileRejection(result.reason)
+        }
+
+        override fun onDuplicateProfile(profileId: String) {
+            val result = profileSession.duplicateProfile(profileId)
+            if (result is EditResult.Rejected) showProfileRejection(result.reason)
+        }
+
+        override fun onRenameProfile(profileId: String, name: String) {
+            when (val result = profileSession.renameProfile(profileId, name)) {
+                is EditResult.Success -> updateProfileChrome()
+                is EditResult.Rejected -> showProfileRejection(result.reason)
+            }
+        }
+
+        override fun onMoveProfile(profileId: String, offset: Int) {
+            val result = profileSession.moveProfile(profileId, offset)
+            if (result is EditResult.Rejected) showProfileRejection(result.reason)
+        }
+
+        override fun onSetStartupDefault(profileId: String) {
+            val result = profileSession.setStartupDefault(profileId)
+            if (result is EditResult.Rejected) showProfileRejection(result.reason)
+        }
+
+        override fun onResetProfile(profileId: String) = resetProfile(profileId)
+
+        override fun onDeleteProfile(profileId: String) {
+            val wasActive = profileId == profileSession.activeProfile.id
+            when (val result = profileSession.deleteProfile(profileId)) {
+                // Deleting the active profile selected a fallback; show it.
+                is EditResult.Success -> if (wasActive) showActiveProfile()
+                is EditResult.Rejected -> showProfileRejection(result.reason)
+            }
+        }
     }
 
     private fun updatePageChrome(position: Int) {
@@ -414,9 +569,21 @@ class MainActivity : AppCompatActivity(), DashboardEditListener, DashboardEditDi
             EditRejection.UNKNOWN_ACTION -> R.string.edit_rejected_unknown_action
             EditRejection.INVALID_NAME -> R.string.edit_rejected_invalid_name
             EditRejection.LAST_PAGE -> R.string.edit_rejected_last_page
-            EditRejection.UNKNOWN_WIDGET, EditRejection.UNKNOWN_PAGE -> R.string.edit_rejected_unknown
+            EditRejection.UNKNOWN_PROFILE -> R.string.edit_rejected_unknown_profile
+            EditRejection.BUILT_IN_PROTECTED -> R.string.edit_rejected_built_in
+            EditRejection.LAST_PROFILE -> R.string.edit_rejected_last_profile
+            EditRejection.UNKNOWN_WIDGET, EditRejection.UNKNOWN_PAGE, EditRejection.INVALID_LAYOUT -> R.string.edit_rejected_unknown
         }
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    /** The connected desktop's platform as it announced it, or the default while nothing has (e.g. editing offline). */
+    private fun connectedPlatform(): Platform = desktopState.state.desktop.platform ?: Platform.DEFAULT
+
+    private fun showDesktopName(name: String?) {
+        if (announcedDesktopName == name) return
+        announcedDesktopName = name
+        refreshStatus()
     }
 
     // -- connection --
@@ -424,7 +591,7 @@ class MainActivity : AppCompatActivity(), DashboardEditListener, DashboardEditDi
     private fun refreshStatus() {
         val bluetooth = transportManager.bluetooth
         val connected = bluetooth.isConnected
-        val deviceName = bluetooth.remoteName
+        val deviceName = announcedDesktopName ?: bluetooth.remoteName
 
         binding.deviceNameValue.text = deviceName.orEmpty()
         binding.deviceNameValue.visibility = if (connected && !deviceName.isNullOrBlank()) View.VISIBLE else View.GONE

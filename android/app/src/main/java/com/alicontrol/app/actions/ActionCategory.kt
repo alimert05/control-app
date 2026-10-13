@@ -1,6 +1,6 @@
 package com.alicontrol.app.actions
 
-/** Kept generic enough to describe both macOS and Windows actions equally. */
+/** Generic action groupings; each action belongs to exactly one category. */
 enum class ActionCategory {
     MEDIA,
     SYSTEM,

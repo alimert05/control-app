@@ -117,7 +117,7 @@ class DashboardSerializerTest {
     @Test
     fun aLayoutWithOverlappingWidgetsIsRefused() {
         val json = """
-            {"schemaVersion":1,"pages":[{"id":"p","name":"P","order":0,"widgets":[
+            {"schemaVersion":2,"pages":[{"id":"p","name":"P","order":0,"widgets":[
               {"id":"a","type":"ACTION","x":0,"y":0,"w":2,"h":2,"config":{"actionId":"lock_screen"}},
               {"id":"b","type":"ACTION","x":1,"y":1,"w":1,"h":1,"config":{"actionId":"screenshot"}}
             ]}]}
@@ -129,7 +129,7 @@ class DashboardSerializerTest {
     @Test
     fun aLayoutWithAWidgetOutsideTheGridIsRefused() {
         val json = """
-            {"schemaVersion":1,"pages":[{"id":"p","name":"P","order":0,"widgets":[
+            {"schemaVersion":2,"pages":[{"id":"p","name":"P","order":0,"widgets":[
               {"id":"a","type":"ACTION","x":6,"y":0,"w":1,"h":1,"config":{"actionId":"lock_screen"}}
             ]}]}
         """.trimIndent()
@@ -140,7 +140,7 @@ class DashboardSerializerTest {
     @Test
     fun aLayoutBreakingAWidgetTypesSizeConstraintsIsRefused() {
         val json = """
-            {"schemaVersion":1,"pages":[{"id":"p","name":"P","order":0,"widgets":[
+            {"schemaVersion":2,"pages":[{"id":"p","name":"P","order":0,"widgets":[
               {"id":"a","type":"ACTION","x":0,"y":0,"w":4,"h":1,"config":{"actionId":"lock_screen"}}
             ]}]}
         """.trimIndent()
@@ -151,7 +151,7 @@ class DashboardSerializerTest {
     @Test
     fun aLayoutWithDuplicateWidgetIdsIsRefused() {
         val json = """
-            {"schemaVersion":1,"pages":[{"id":"p","name":"P","order":0,"widgets":[
+            {"schemaVersion":2,"pages":[{"id":"p","name":"P","order":0,"widgets":[
               {"id":"a","type":"ACTION","x":0,"y":0,"w":1,"h":1,"config":{"actionId":"lock_screen"}},
               {"id":"a","type":"ACTION","x":1,"y":0,"w":1,"h":1,"config":{"actionId":"screenshot"}}
             ]}]}
@@ -163,7 +163,7 @@ class DashboardSerializerTest {
     @Test
     fun aLayoutReferencingAnUnknownActionIsRefused() {
         val json = """
-            {"schemaVersion":1,"pages":[{"id":"p","name":"P","order":0,"widgets":[
+            {"schemaVersion":2,"pages":[{"id":"p","name":"P","order":0,"widgets":[
               {"id":"a","type":"ACTION","x":0,"y":0,"w":1,"h":1,"config":{"actionId":"format_disk"}}
             ]}]}
         """.trimIndent()
@@ -174,7 +174,7 @@ class DashboardSerializerTest {
     @Test
     fun aLayoutWithAnUnknownWidgetTypeIsRefused() {
         val json = """
-            {"schemaVersion":1,"pages":[{"id":"p","name":"P","order":0,"widgets":[
+            {"schemaVersion":2,"pages":[{"id":"p","name":"P","order":0,"widgets":[
               {"id":"a","type":"TELEPORTER","x":0,"y":0,"w":1,"h":1,"config":{}}
             ]}]}
         """.trimIndent()
@@ -185,7 +185,7 @@ class DashboardSerializerTest {
     @Test
     fun aLayoutWithAMissingConfigFieldIsRefused() {
         val json = """
-            {"schemaVersion":1,"pages":[{"id":"p","name":"P","order":0,"widgets":[
+            {"schemaVersion":2,"pages":[{"id":"p","name":"P","order":0,"widgets":[
               {"id":"a","type":"ACTION","x":0,"y":0,"w":1,"h":1,"config":{}}
             ]}]}
         """.trimIndent()
@@ -196,7 +196,7 @@ class DashboardSerializerTest {
     @Test
     fun aPageWithABlankNameIsRefused() {
         val json = """
-            {"schemaVersion":1,"pages":[{"id":"p","name":"  ","order":0,"widgets":[]}]}
+            {"schemaVersion":2,"pages":[{"id":"p","name":"  ","order":0,"widgets":[]}]}
         """.trimIndent()
 
         assertNull(DashboardSerializer.deserialize(json))
@@ -215,7 +215,7 @@ class DashboardSerializerTest {
     @Test
     fun pageOrderIsRestoredDeterministicallyRegardlessOfStoredOrderValues() {
         val json = """
-            {"schemaVersion":1,"pages":[
+            {"schemaVersion":2,"pages":[
               {"id":"b","name":"B","order":40,"widgets":[]},
               {"id":"a","name":"A","order":10,"widgets":[]}
             ]}

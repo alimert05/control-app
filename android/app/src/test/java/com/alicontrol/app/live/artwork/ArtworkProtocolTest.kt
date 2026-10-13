@@ -38,7 +38,7 @@ class ArtworkProtocolTest {
         assertNull(ArtworkProtocol.chunkFrame(byteArrayOf(0xAC.toByte(), 0x02) + ByteArray(11)))
     }
 
-    @Test fun contentHashFixtureMatchesMacOSStrategy() {
+    @Test fun contentHashFixtureMatchesTheDesktopAgentsStrategy() {
         assertEquals("f09bb5200116bd26", ArtworkHash.idFor("ali-control-artwork-fixture".toByteArray()))
     }
 }

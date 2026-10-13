@@ -44,6 +44,27 @@
                 style="@style/Text.StatLabel" />
         </LinearLayout>
 
+        <!--
+          TASK-010: the profile switcher. Stays in the header in both normal and edit mode
+          (switching while editing leaves Edit Mode first), same style and 44dp height as every
+          other header control, so the header does not get taller. The name is capped so a long
+          profile name can't push the other controls off a small tablet.
+        -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/profileButton"
+            style="@style/Widget.AliControl.HeaderButton"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginEnd="12dp"
+            android:contentDescription="@string/profile_switcher_description"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:maxWidth="168dp"
+            app:icon="@drawable/ic_arrow_drop_down"
+            app:iconGravity="textEnd"
+            app:iconPadding="4dp"
+            tools:text="Default" />
+
         <TextView
             android:id="@+id/currentPageLabel"
             android:layout_width="wrap_content"

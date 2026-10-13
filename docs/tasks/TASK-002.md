@@ -1,5 +1,7 @@
 # TASK-002 — Bluetooth Transport & Pairing
 
+> **Historical document.** The product is now Android + Windows only (macOS support was retired); platform-neutral requirements here still apply. See [docs/WINDOWS_MIGRATION.md](../WINDOWS_MIGRATION.md).
+
 ## Goal
 
 Implement the first real communication layer for Ali Control using Bluetooth Low Energy (BLE).

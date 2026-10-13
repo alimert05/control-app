@@ -68,16 +68,17 @@ class DashboardModelTest {
     }
 
     @Test
-    fun unsupportedPlatformPolicyDisablesRemoteWidgetsButNotInformationalWidgets() {
-        val macOnly = DashboardWidget(
-            "spotlight", WidgetType.ACTION, 0, 0, 2, 2,
-            WidgetConfig.Action(AliControlCommands.SPOTLIGHT)
+    fun platformPolicyDisablesRemoteWidgetsWithUnknownActionsButNotInformationalWidgets() {
+        val search = DashboardWidget(
+            "search", WidgetType.ACTION, 0, 0, 2, 2,
+            WidgetConfig.Action(AliControlCommands.WINDOWS_SEARCH)
         )
+        // An action id this build does not know can never be served by any platform.
+        val unknown = DashboardWidget("unknown", WidgetType.ACTION, 0, 0, 2, 2, WidgetConfig.Action("not_an_action"))
         val metric = DashboardWidget("cpu", WidgetType.METRIC, 0, 0, 2, 2, WidgetConfig.Metric("CPU"))
 
-        assertTrue(macOnly.isSupportedOn(Platform.MACOS))
-        assertFalse(macOnly.isSupportedOn(Platform.WINDOWS))
-        assertTrue(metric.isSupportedOn(Platform.MACOS))
+        assertTrue(search.isSupportedOn(Platform.WINDOWS))
+        assertFalse(unknown.isSupportedOn(Platform.WINDOWS))
         assertTrue(metric.isSupportedOn(Platform.WINDOWS))
     }
 
@@ -100,8 +101,9 @@ class DashboardModelTest {
             AliControlCommands.SCREENSHOT,
             AliControlCommands.OPEN_TERMINAL,
             AliControlCommands.OPEN_VSCODE,
-            AliControlCommands.SPOTLIGHT,
-            AliControlCommands.MISSION_CONTROL,
+            AliControlCommands.WINDOWS_SEARCH,
+            AliControlCommands.TASK_VIEW,
+            AliControlCommands.OPEN_EXPLORER,
             AliControlCommands.VOLUME_DOWN,
             AliControlCommands.VOLUME_UP,
             AliControlCommands.MUTE_TOGGLE,
@@ -132,9 +134,9 @@ class DashboardModelTest {
             AliControlCommands.OPEN_VSCODE,
             AliControlCommands.OPEN_TERMINAL,
             AliControlCommands.OPEN_BROWSER,
-            AliControlCommands.OPEN_FINDER,
-            AliControlCommands.SPOTLIGHT,
-            AliControlCommands.OPEN_ACTIVITY_MONITOR,
+            AliControlCommands.OPEN_EXPLORER,
+            AliControlCommands.WINDOWS_SEARCH,
+            AliControlCommands.OPEN_TASK_MANAGER,
             AliControlCommands.SCREENSHOT,
             AliControlCommands.OPEN_SYSTEM_SETTINGS
         )

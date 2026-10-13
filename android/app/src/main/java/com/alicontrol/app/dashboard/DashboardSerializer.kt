@@ -23,11 +23,24 @@ import org.json.JSONObject
 object DashboardSerializer {
 
     /**
-     * Bumped whenever the persisted shape changes incompatibly. A file
-     * written by a newer build is refused (and replaced by defaults) rather
-     * than guessed at.
+     * Bumped whenever the persisted content changes incompatibly. A file written
+     * by a newer build is refused (and replaced by defaults) rather than guessed
+     * at; a file written by an older, still-understood build is migrated.
+     *
+     * - 1: the original layout. Action ids could be the macOS-era ones
+     *   (`spotlight`, `mission_control`, `open_finder`, `open_activity_monitor`).
+     * - 2: Windows-only. Those ids are replaced by their Windows equivalents
+     *   (see [ActionIdMigration]); the document structure is otherwise identical.
      */
-    const val SCHEMA_VERSION = 1
+    const val SCHEMA_VERSION = 2
+
+    /** The oldest schema this build can still read (and migrate to [SCHEMA_VERSION]). */
+    const val OLDEST_SUPPORTED_SCHEMA_VERSION = 1
+
+    /** A successfully read layout, and whether it came from an older schema and was migrated on the way in. */
+    data class Loaded(val dashboard: Dashboard, val migratedFromVersion: Int?) {
+        val wasMigrated: Boolean get() = migratedFromVersion != null
+    }
 
     private const val KEY_SCHEMA_VERSION = "schemaVersion"
     private const val KEY_PAGES = "pages"
@@ -51,7 +64,16 @@ object DashboardSerializer {
     private const val KEY_NEXT = "next"
     private const val KEY_DESTINATION = "destination"
 
-    fun serialize(dashboard: Dashboard): String {
+    fun serialize(dashboard: Dashboard): String = toJson(dashboard).toString()
+
+    /**
+     * The dashboard as a JSON object — the one representation of a [Dashboard],
+     * used both for the stand-alone document above and for each profile's
+     * dashboard inside a profile document (see
+     * [com.alicontrol.app.dashboard.profile.ProfileSerializer]). Profiles
+     * embed this exact shape rather than defining a second one.
+     */
+    fun toJson(dashboard: Dashboard): JSONObject {
         val pages = JSONArray()
         for (page in dashboard.orderedPages) {
             pages.put(
@@ -65,26 +87,47 @@ object DashboardSerializer {
         return JSONObject()
             .put(KEY_SCHEMA_VERSION, SCHEMA_VERSION)
             .put(KEY_PAGES, pages)
-            .toString()
     }
 
     /** Returns null for anything this build can't fully and validly reconstruct. */
-    fun deserialize(json: String?): Dashboard? {
+    fun deserialize(json: String?): Dashboard? = deserializeWithInfo(json)?.dashboard
+
+    /**
+     * Like [deserialize], but also reports whether an older schema was migrated, so
+     * the caller can persist the upgraded document. Schema-1 action ids that
+     * referred to macOS-only features are rewritten to their Windows equivalents
+     * ([ActionIdMigration]) *before* validation, so no widget is lost.
+     */
+    fun deserializeWithInfo(json: String?): Loaded? {
         if (json.isNullOrBlank()) return null
         return try {
-            val root = JSONObject(json)
-            if (root.getInt(KEY_SCHEMA_VERSION) != SCHEMA_VERSION) return null
+            fromJson(JSONObject(json))
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * The same strict, total reconstruction as [deserializeWithInfo], for a
+     * dashboard that has already been parsed into a [JSONObject] (a profile's
+     * embedded dashboard). Returns null for anything not fully valid.
+     */
+    fun fromJson(root: JSONObject): Loaded? {
+        return try {
+            val version = root.getInt(KEY_SCHEMA_VERSION)
+            if (version !in OLDEST_SUPPORTED_SCHEMA_VERSION..SCHEMA_VERSION) return null
+            val migrateIds = version < 2
             val pagesJson = root.getJSONArray(KEY_PAGES)
             if (pagesJson.length() == 0) return null
 
             val pages = ArrayList<DashboardPage>(pagesJson.length())
             for (i in 0 until pagesJson.length()) {
-                pages.add(deserializePage(pagesJson.getJSONObject(i)) ?: return null)
+                pages.add(deserializePage(pagesJson.getJSONObject(i), migrateIds) ?: return null)
             }
             val dashboard = Dashboard(pages).normalizedOrder()
             if (!dashboard.isValid()) return null
             if (!referencesOnlyKnownActions(dashboard)) return null
-            dashboard
+            Loaded(dashboard, migratedFromVersion = if (migrateIds) version else null)
         } catch (e: Exception) {
             // Any malformed structure at all (JSONException, IllegalArgumentException
             // from a widget's own invariants, a bad enum name) means the stored
@@ -129,21 +172,21 @@ object DashboardSerializer {
             .put(KEY_DESTINATION, config.destination.name)
     }
 
-    private fun deserializePage(json: JSONObject): DashboardPage? {
+    private fun deserializePage(json: JSONObject, migrateIds: Boolean): DashboardPage? {
         val id = json.getString(KEY_ID)
         val name = json.getString(KEY_NAME)
         if (id.isBlank() || name.isBlank()) return null
         val widgetsJson = json.getJSONArray(KEY_WIDGETS)
         val widgets = ArrayList<DashboardWidget>(widgetsJson.length())
         for (i in 0 until widgetsJson.length()) {
-            widgets.add(deserializeWidget(widgetsJson.getJSONObject(i)) ?: return null)
+            widgets.add(deserializeWidget(widgetsJson.getJSONObject(i), migrateIds) ?: return null)
         }
         return DashboardPage(id = id, name = name, order = json.getInt(KEY_ORDER), widgets = widgets)
     }
 
-    private fun deserializeWidget(json: JSONObject): DashboardWidget? {
+    private fun deserializeWidget(json: JSONObject, migrateIds: Boolean): DashboardWidget? {
         val type = WidgetType.values().firstOrNull { it.name == json.getString(KEY_TYPE) } ?: return null
-        val config = deserializeConfig(type, json.getJSONObject(KEY_CONFIG)) ?: return null
+        val config = deserializeConfig(type, json.getJSONObject(KEY_CONFIG), migrateIds) ?: return null
         val placement = WidgetPlacement(
             x = json.getInt(KEY_X),
             y = json.getInt(KEY_Y),
@@ -156,10 +199,17 @@ object DashboardSerializer {
         return DashboardWidget(id, type, placement, config)
     }
 
-    private fun deserializeConfig(type: WidgetType, json: JSONObject): WidgetConfig? = when (type) {
-        WidgetType.ACTION -> WidgetConfig.Action(json.getString(KEY_ACTION_ID))
+    private fun deserializeConfig(type: WidgetType, json: JSONObject, migrateIds: Boolean): WidgetConfig? {
+        // Schema-1 documents may still name a retired (macOS-era) action; map it to its Windows
+        // equivalent here, before any validation, so the widget survives with its place and size.
+        val actionId: (String) -> String = if (migrateIds) ActionIdMigration::migrate else { id -> id }
+        return deserializeConfigWith(type, json, actionId)
+    }
+
+    private fun deserializeConfigWith(type: WidgetType, json: JSONObject, actionId: (String) -> String): WidgetConfig? = when (type) {
+        WidgetType.ACTION -> WidgetConfig.Action(actionId(json.getString(KEY_ACTION_ID)))
         WidgetType.ACTION_GROUP -> {
-            val ids = json.getJSONArray(KEY_ACTION_IDS).toStringList()
+            val ids = json.getJSONArray(KEY_ACTION_IDS).toStringList().map(actionId)
             if (ids.isEmpty()) null else WidgetConfig.ActionGroup(ids)
         }
         WidgetType.METRIC -> WidgetConfig.Metric(json.getString(KEY_LABEL))
@@ -167,13 +217,13 @@ object DashboardSerializer {
         WidgetType.CLOCK -> WidgetConfig.Clock(json.getBoolean(KEY_SHOW_DATE))
         WidgetType.DAILY_OVERVIEW -> WidgetConfig.DailyOverview(json.optString(KEY_LOCATION, ""))
         WidgetType.MEDIA -> WidgetConfig.Media(
-            previousActionId = json.getString(KEY_PREVIOUS),
-            playPauseActionId = json.getString(KEY_PLAY_PAUSE),
-            nextActionId = json.getString(KEY_NEXT)
+            previousActionId = actionId(json.getString(KEY_PREVIOUS)),
+            playPauseActionId = actionId(json.getString(KEY_PLAY_PAUSE)),
+            nextActionId = actionId(json.getString(KEY_NEXT))
         )
         WidgetType.SLIDER -> WidgetConfig.Slider(
             label = json.getString(KEY_LABEL),
-            actionIds = json.getJSONArray(KEY_ACTION_IDS).toStringList()
+            actionIds = json.getJSONArray(KEY_ACTION_IDS).toStringList().map(actionId)
         )
         WidgetType.SHORTCUT -> {
             val destination = ShortcutDestination.values()

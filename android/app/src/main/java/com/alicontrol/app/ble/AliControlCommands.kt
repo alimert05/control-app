@@ -1,21 +1,25 @@
 package com.alicontrol.app.ble
 
 /**
- * The explicit allowlist of command actions a desktop agent (macOS in
- * TASK-003, Windows later) must implement. There is no generic/arbitrary
- * command path on either side — only these action strings are ever sent, and
- * a desktop agent must reject anything else with an error state message
- * rather than executing it.
+ * The explicit allowlist of command actions the desktop agent (Windows) must
+ * implement. There is no generic/arbitrary command path on either side — only
+ * these action strings are ever sent, and the agent rejects anything else with
+ * an error state message rather than executing it.
  *
- * TASK-006 expanded this from the original 5 (still identical values, fully
- * backward compatible) to the full first-batch action library — see
- * [com.alicontrol.app.actions.ActionLibrary], which builds its metadata from
- * these same constants so the ID string only ever exists in one place.
+ * Every ID is a stable protocol string. Four IDs that existed while macOS was
+ * the reference platform were replaced by their Windows equivalents
+ * (`spotlight` → [WINDOWS_SEARCH], `mission_control` → [TASK_VIEW],
+ * `open_finder` → [OPEN_EXPLORER], `open_activity_monitor` → [OPEN_TASK_MANAGER]);
+ * saved dashboards that still reference the old strings are migrated on load —
+ * see [com.alicontrol.app.dashboard.ActionIdMigration].
+ *
+ * [com.alicontrol.app.actions.ActionLibrary] builds its metadata from these same
+ * constants so an ID string only ever exists in one place.
  */
 object AliControlCommands {
     const val PING = "ping"
 
-    // Media — PLAY_PAUSE/VOLUME_UP/VOLUME_DOWN/MUTE_TOGGLE existed before TASK-006.
+    // Media
     const val PLAY_PAUSE = "play_pause"
     const val NEXT_TRACK = "next_track"
     const val PREVIOUS_TRACK = "previous_track"
@@ -29,17 +33,17 @@ object AliControlCommands {
     const val DISPLAY_SLEEP = "display_sleep"
     const val SCREENSHOT = "screenshot"
     const val SHOW_DESKTOP = "show_desktop"
-    const val SPOTLIGHT = "spotlight"
-    const val MISSION_CONTROL = "mission_control"
+    const val WINDOWS_SEARCH = "windows_search"
+    const val TASK_VIEW = "task_view"
 
-    // Apps — OPEN_TERMINAL existed before TASK-006.
+    // Apps
     const val OPEN_TERMINAL = "open_terminal"
     const val OPEN_VSCODE = "open_vscode"
-    const val OPEN_FINDER = "open_finder"
+    const val OPEN_EXPLORER = "open_explorer"
     const val OPEN_BROWSER = "open_browser"
     const val OPEN_SPOTIFY = "open_spotify"
     const val OPEN_SYSTEM_SETTINGS = "open_system_settings"
-    const val OPEN_ACTIVITY_MONITOR = "open_activity_monitor"
+    const val OPEN_TASK_MANAGER = "open_task_manager"
 
     // Window
     const val MINIMIZE_WINDOW = "minimize_window"

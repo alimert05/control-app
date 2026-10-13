@@ -3,6 +3,7 @@ package com.alicontrol.app.dashboard
 import com.alicontrol.app.actions.ActionLibrary
 import com.alicontrol.app.actions.DangerLevel
 import com.alicontrol.app.actions.Platform
+import com.alicontrol.app.live.DesktopInfo
 import com.alicontrol.app.ble.AliControlCommands
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -219,15 +220,18 @@ class DashboardEditorTest {
     }
 
     @Test
-    fun anActionUnsupportedByThePlatformStaysInTheLayoutAndReportsAsUnsupported() {
-        // spotlight is macOS-only: on a Windows agent it must remain saved and
-        // simply render disabled, never be dropped from the layout.
-        val after = (DashboardEditor.addActionWidget(page(), AliControlCommands.SPOTLIGHT) as EditResult.Success).value
-
+    fun aWidgetTheConnectedDesktopCannotServeStaysInTheLayoutAndOnlyRendersDisabled() {
+        // A desktop that reports a platform without this action (or without the `actions`
+        // capability) must never cause the widget to be dropped: the layout is
+        // platform-neutral and availability only changes how a widget is drawn.
+        val after = (DashboardEditor.addActionWidget(page(), AliControlCommands.WINDOWS_SEARCH) as EditResult.Success).value
         val widget = after.widgets.single()
-        assertTrue(widget.isSupportedOn(Platform.MACOS))
-        assertFalse(widget.isSupportedOn(Platform.WINDOWS))
-        assertEquals(AliControlCommands.SPOTLIGHT, widget.referencedActionIds().single())
+
+        assertTrue(widget.isSupportedOn(Platform.WINDOWS))
+        val noActions = DesktopInfo(hasIdentity = true, platform = Platform.WINDOWS, capabilities = emptySet())
+        assertEquals(WidgetAvailability.MISSING_CAPABILITY, WidgetSupport.availability(widget, noActions))
+        assertEquals(AliControlCommands.WINDOWS_SEARCH, widget.referencedActionIds().single())
+        assertEquals(1, after.widgets.size)
     }
 
     @Test

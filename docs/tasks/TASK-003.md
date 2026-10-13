@@ -1,5 +1,7 @@
 # TASK-003 — macOS BLE Agent & Core Controls
 
+> **Historical document.** This task was written when macOS was the reference desktop platform. Windows 11 is now the only supported desktop and the macOS agent was removed. Read it for the *product intent and constraints*; the macOS-specific implementation notes (Swift, CoreBluetooth, `.app` bundle, menu bar, Accessibility, Login Items) are superseded by [docs/WINDOWS_MIGRATION.md](../WINDOWS_MIGRATION.md) and the Windows agent in `windows/`.
+
 ## Goal
 
 Implement the first real desktop agent for Ali Control on macOS.

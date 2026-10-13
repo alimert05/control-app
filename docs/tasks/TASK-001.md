@@ -1,5 +1,7 @@
 # TASK-001 — Android Control Panel Foundation
 
+> **Historical document.** The product is now Android + Windows only (macOS support was retired); platform-neutral requirements here still apply. See [docs/WINDOWS_MIGRATION.md](../WINDOWS_MIGRATION.md).
+
 ## Goal
 
 Create the initial native Android application for Ali Control.

@@ -1,5 +1,7 @@
 # TASK-004 — Device / Kiosk Mode
 
+> **Historical document.** The product is now Android + Windows only (macOS support was retired); platform-neutral requirements here still apply. See [docs/WINDOWS_MIGRATION.md](../WINDOWS_MIGRATION.md).
+
 ## Goal
 
 Turn the Android tablet into a dedicated Ali Control appliance.

@@ -17,6 +17,7 @@ import com.alicontrol.app.actions.ActionDefinition
 import com.alicontrol.app.actions.ActionLibrary
 import com.alicontrol.app.actions.DangerLevel
 import com.alicontrol.app.actions.PermissionRequirement
+import com.alicontrol.app.actions.Platform
 import com.alicontrol.app.ble.AliControlCommands
 import com.alicontrol.app.dashboard.DashboardEditor
 import com.alicontrol.app.dashboard.DashboardPage
@@ -34,7 +35,14 @@ import com.alicontrol.app.icons.ActionIconRegistry
  * implement, and there is no free-text field anywhere that could introduce an
  * arbitrary action id or command.
  */
-class DashboardEditDialogs(private val activity: AppCompatActivity) {
+class DashboardEditDialogs(
+    private val activity: AppCompatActivity,
+    /**
+     * The platform whose actions the picker offers: the connected desktop's, or
+     * [Platform.DEFAULT] while editing offline (nothing is connected to ask).
+     */
+    private val platform: () -> Platform = { Platform.DEFAULT }
+) {
 
     /** Presets for ACTION_GROUP widgets — each is a set of existing library action ids. */
     private val groupPresets: List<Pair<Int, List<String>>> = listOf(
@@ -102,7 +110,7 @@ class DashboardEditDialogs(private val activity: AppCompatActivity) {
 
         lateinit var dialog: AlertDialog
         val byCategory = ActionLibrary
-            .forPlatform(DashboardWidgetViewFactory.CURRENT_PLATFORM)
+            .forPlatform(platform())
             .groupBy { it.category }
 
         for ((category, actions) in byCategory) {
@@ -133,8 +141,8 @@ class DashboardEditDialogs(private val activity: AppCompatActivity) {
     private fun actionRow(action: ActionDefinition, onClick: () -> Unit): View {
         val badges = buildList {
             if (action.dangerLevel == DangerLevel.CONFIRM) add(activity.getString(R.string.action_badge_confirm))
-            if (action.permissionRequirement == PermissionRequirement.ACCESSIBILITY) {
-                add(activity.getString(R.string.action_badge_accessibility))
+            if (action.permissionRequirement == PermissionRequirement.INPUT_SIMULATION) {
+                add(activity.getString(R.string.action_badge_input))
             }
         }
         val row = LinearLayout(activity).apply {
@@ -205,11 +213,31 @@ class DashboardEditDialogs(private val activity: AppCompatActivity) {
             .show()
     }
 
-    fun showRenamePage(currentName: String, onName: (String) -> Unit) {
+    fun showRenamePage(currentName: String, onName: (String) -> Unit) =
+        showNameInput(R.string.page_rename, R.string.page_name_hint, currentName, onName)
+
+    /**
+     * A one-line name prompt — the only free text anywhere in the editor, and it only ever
+     * becomes a *display name* (a page's or a profile's), never an id or an action. Callers
+     * validate what comes back ([DashboardEditor.sanitizePageName] /
+     * [com.alicontrol.app.dashboard.profile.ProfileEditor.sanitizeName]).
+     *
+     * [onCancelled] runs when the prompt is dismissed without saving, so a caller that opened
+     * it from another dialog can return there. [selectAll] pre-selects [initial] so typing
+     * replaces a suggested name.
+     */
+    fun showNameInput(
+        titleRes: Int,
+        hintRes: Int,
+        initial: String,
+        onName: (String) -> Unit,
+        selectAll: Boolean = false,
+        onCancelled: () -> Unit = {}
+    ) {
         val input = EditText(activity).apply {
-            setText(currentName)
-            setSelection(currentName.length)
-            hint = activity.getString(R.string.page_name_hint)
+            setText(initial)
+            setSelection(if (selectAll) 0 else initial.length, initial.length)
+            hint = activity.getString(hintRes)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
             setSingleLine()
             setTextColor(ContextCompat.getColor(activity, R.color.text_primary))
@@ -218,11 +246,16 @@ class DashboardEditDialogs(private val activity: AppCompatActivity) {
             setPadding(dp(20), dp(8), dp(20), 0)
             addView(input, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         }
+        var saved = false
         AlertDialog.Builder(activity)
-            .setTitle(R.string.page_rename)
+            .setTitle(titleRes)
             .setView(wrapper)
-            .setPositiveButton(R.string.action_save) { _, _ -> onName(input.text.toString()) }
+            .setPositiveButton(R.string.action_save) { _, _ ->
+                saved = true
+                onName(input.text.toString())
+            }
             .setNegativeButton(R.string.action_cancel, null)
+            .setOnDismissListener { if (!saved) onCancelled() }
             .show()
     }
 
@@ -238,15 +271,6 @@ class DashboardEditDialogs(private val activity: AppCompatActivity) {
             .setTitle(R.string.page_delete_confirm_title)
             .setMessage(message)
             .setPositiveButton(R.string.action_delete) { _, _ -> onConfirm() }
-            .setNegativeButton(R.string.action_cancel, null)
-            .show()
-    }
-
-    fun showResetConfirm(onConfirm: () -> Unit) {
-        AlertDialog.Builder(activity)
-            .setTitle(R.string.reset_confirm_title)
-            .setMessage(R.string.reset_confirm_message)
-            .setPositiveButton(R.string.action_reset) { _, _ -> onConfirm() }
             .setNegativeButton(R.string.action_cancel, null)
             .show()
     }

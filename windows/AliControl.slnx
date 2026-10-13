@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="AliControlWindows.Tests/AliControlWindows.Tests.csproj" />
+  <Project Path="AliControlWindows/AliControlWindows.csproj" />
+</Solution>

@@ -32,8 +32,31 @@ class DashboardStore(
     private val defaultFactory: () -> Dashboard = { DefaultDashboardFactory.create() }
 ) {
 
-    /** The stored layout if one is present and valid, otherwise the shipped default. */
-    fun load(): Dashboard = DashboardSerializer.deserialize(persistence.read()) ?: defaultFactory()
+    /**
+     * The stored layout if one is present and valid, otherwise the shipped default.
+     *
+     * A layout saved by an older build is migrated on the way in (retired action
+     * ids become their Windows equivalents — see [ActionIdMigration]) and the
+     * upgraded document is written straight back, so the migration runs once and
+     * every later load reads the current schema. Nothing the user placed is lost.
+     */
+    fun load(): Dashboard {
+        val loaded = DashboardSerializer.deserializeWithInfo(persistence.read()) ?: return defaultFactory()
+        if (loaded.wasMigrated) save(loaded.dashboard)
+        return loaded.dashboard
+    }
+
+    /**
+     * The stored layout if one is present and valid — older schemas migrated in
+     * memory — or null. Unlike [load] it never substitutes the default and never
+     * writes anything back.
+     *
+     * TASK-010 reads the pre-profile single layout through this, once, to turn it
+     * into the Default profile (see
+     * [com.alicontrol.app.dashboard.profile.ProfileStore]); the stored string is
+     * left exactly as it was.
+     */
+    fun loadStored(): Dashboard? = DashboardSerializer.deserializeWithInfo(persistence.read())?.dashboard
 
     /** Whether a valid user layout is currently stored (as opposed to running on the defaults). */
     fun hasStoredLayout(): Boolean = DashboardSerializer.deserialize(persistence.read()) != null

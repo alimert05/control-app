@@ -5,7 +5,7 @@ import android.media.AudioManager
 
 /**
  * Reads/writes the tablet's own media (`STREAM_MUSIC`) volume. Entirely
- * separate from the remote Mac/Windows volume commands sent over BLE — those
+ * separate from the remote desktop volume commands sent over BLE — those
  * never touch this class, and this never touches the BLE transport.
  * No permission is required for stream volume changes.
  */

@@ -12,7 +12,17 @@ enum class EditRejection {
     UNKNOWN_PAGE,
     UNKNOWN_ACTION,
     INVALID_NAME,
-    LAST_PAGE
+    LAST_PAGE,
+
+    // Profile-level refusals (TASK-010) — the same "rejected, never half-applied" contract.
+    UNKNOWN_PROFILE,
+
+    /** Built-in profiles can be reset, never deleted. */
+    BUILT_IN_PROTECTED,
+    LAST_PROFILE,
+
+    /** A dashboard that breaks the grid/size/uniqueness rules was offered for storage. */
+    INVALID_LAYOUT
 }
 
 /** Either the new value produced by an edit, or the reason it was refused. Never a half-applied state. */
@@ -72,7 +82,7 @@ object DashboardEditor {
         return EditResult.Success(page.replacing(widget.copy(placement = candidate)))
     }
 
-    /** Removes a widget from this page only — never from [ActionLibrary], the macOS registry, or another page. */
+    /** Removes a widget from this page only — never from [ActionLibrary], the desktop agent's registry, or another page. */
     fun removeWidget(page: DashboardPage, widgetId: String): EditResult<DashboardPage> {
         if (page.widget(widgetId) == null) return EditResult.Rejected(EditRejection.UNKNOWN_WIDGET)
         return EditResult.Success(page.copy(widgets = page.widgets.filterNot { it.id == widgetId }))

@@ -1,5 +1,7 @@
 # TASK-007 — Multi-Page Dashboard & Widget UI Foundation
 
+> **Historical document.** Written when macOS was the reference platform; the dashboard architecture described here is unchanged. Action names such as Spotlight / Mission Control / Finder / Activity Monitor are now Windows Search / Task View / File Explorer / Task Manager, and saved layouts are migrated automatically (schema 1 → 2). See [docs/WINDOWS_MIGRATION.md](../WINDOWS_MIGRATION.md).
+
 ## Goal
 
 Replace the current simple control-grid experience with a polished, multi-page dashboard foundation built around reusable widgets.

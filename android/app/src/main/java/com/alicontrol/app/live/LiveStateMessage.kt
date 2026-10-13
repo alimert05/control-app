@@ -4,7 +4,8 @@ import com.alicontrol.app.ble.JsonFields
 import java.nio.charset.StandardCharsets
 
 /**
- * The desktop→tablet live-state messages added in TASK-009.
+ * The desktop→tablet live-state messages: telemetry, now-playing, and (since the
+ * Windows migration) the desktop's identity and capabilities.
  *
  * These travel over the **same** BLE state characteristic as the existing
  * command acknowledgements and are told apart by their `type` field, so no
@@ -19,6 +20,8 @@ import java.nio.charset.StandardCharsets
  * {"type":"metrics","cpu":34,"memory":48}
  * {"type":"media","available":true,"source":"spotify","playing":true,"position":83,"duration":214}
  * {"type":"track","title":"Song","artist":"Artist","album":"Album"}
+ * {"type":"desktop_info","platform":"windows","protocol":2,"name":"ALI-PC"}
+ * {"type":"capabilities","ids":["actions","telemetry.cpu","media"]}
  * ```
  *
  * Playback and track identity are separate messages on purpose: playback is
@@ -48,6 +51,23 @@ sealed class LiveStateMessage {
         val durationSeconds: Int? = null
     ) : LiveStateMessage()
 
+    /**
+     * Who the desktop is: `{"type":"desktop_info","platform":"windows","protocol":2,"name":"ALI-PC"}`.
+     * Sent once per connection, right after the tablet subscribes.
+     */
+    data class Desktop(
+        val platformId: String?,
+        val protocolVersion: Int,
+        val name: String?
+    ) : LiveStateMessage()
+
+    /**
+     * What the desktop can do: `{"type":"capabilities","ids":["actions","telemetry.cpu"]}`.
+     * Additive — a long list may be split over several messages, and a new
+     * [Desktop] message starts the set over.
+     */
+    data class Capabilities(val ids: List<String>) : LiveStateMessage()
+
     /** Track identity, sent only when the track actually changes. */
     data class Track(
         val title: String? = null,
@@ -60,6 +80,8 @@ sealed class LiveStateMessage {
         const val TYPE_METRICS = "metrics"
         const val TYPE_MEDIA = "media"
         const val TYPE_TRACK = "track"
+        const val TYPE_DESKTOP_INFO = "desktop_info"
+        const val TYPE_CAPABILITIES = "capabilities"
 
         fun fromBytes(data: ByteArray): LiveStateMessage? =
             fromJson(String(data, StandardCharsets.UTF_8))
@@ -99,6 +121,17 @@ sealed class LiveStateMessage {
                     artist = JsonFields.string(trimmed, "artist"),
                     album = JsonFields.string(trimmed, "album"),
                     artworkId = JsonFields.string(trimmed, "artworkId")
+                )
+
+                TYPE_DESKTOP_INFO -> Desktop(
+                    platformId = JsonFields.string(trimmed, "platform"),
+                    protocolVersion = JsonFields.int(trimmed, "protocol") ?: 1,
+                    name = JsonFields.string(trimmed, "name")
+                )
+
+                TYPE_CAPABILITIES -> Capabilities(
+                    // A capability list that is not a clean array of strings is malformed, not "empty".
+                    ids = JsonFields.stringArray(trimmed, "ids") ?: return null
                 )
 
                 else -> null

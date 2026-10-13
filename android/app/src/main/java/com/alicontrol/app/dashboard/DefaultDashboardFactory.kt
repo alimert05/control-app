@@ -8,6 +8,10 @@ import com.alicontrol.app.ble.AliControlCommands
  * the layout [DashboardStore] restores on Reset to Default — never something
  * the app forces back over a saved layout.
  *
+ * The defaults are Windows-native: Windows Search, Task View, File Explorer and
+ * Task Manager sit where the macOS-era layout had Spotlight, Mission Control,
+ * Finder and Activity Monitor.
+ *
  * TASK-008 refines the TASK-007 defaults onto the coarser 6x4 grid:
  * the large media player is gone from the Dashboard page (it lives on the
  * dedicated Media page, where there's room for it) and is replaced by a
@@ -32,7 +36,7 @@ object DefaultDashboardFactory {
      * │   DAILY OVERVIEW   ├──────┼──────┼──────┤
      * │                    │ Lock │ Shot │Device│
      * ├──────┬──────┬──────┼──────┼──────┼──────┤
-     * │ Term │ Code │Spot  │Missn │Finder│Browsr│
+     * │ Term │ Code │Search│ Task │Explor│Browsr│
      * ├──────┴──────┴──────┼──────┴──────┴──────┤
      * │   ⏮   ▶/⏸   ⏭    │  Vol-  Mute  Vol+  │
      * └────────────────────┴────────────────────┘
@@ -58,9 +62,9 @@ object DefaultDashboardFactory {
 
             DashboardWidget("dash_terminal", WidgetType.ACTION, 0, 2, 1, 1, WidgetConfig.Action(AliControlCommands.OPEN_TERMINAL)),
             DashboardWidget("dash_vscode", WidgetType.ACTION, 1, 2, 1, 1, WidgetConfig.Action(AliControlCommands.OPEN_VSCODE)),
-            DashboardWidget("dash_spotlight", WidgetType.ACTION, 2, 2, 1, 1, WidgetConfig.Action(AliControlCommands.SPOTLIGHT)),
-            DashboardWidget("dash_mission_control", WidgetType.ACTION, 3, 2, 1, 1, WidgetConfig.Action(AliControlCommands.MISSION_CONTROL)),
-            DashboardWidget("dash_finder", WidgetType.ACTION, 4, 2, 1, 1, WidgetConfig.Action(AliControlCommands.OPEN_FINDER)),
+            DashboardWidget("dash_windows_search", WidgetType.ACTION, 2, 2, 1, 1, WidgetConfig.Action(AliControlCommands.WINDOWS_SEARCH)),
+            DashboardWidget("dash_task_view", WidgetType.ACTION, 3, 2, 1, 1, WidgetConfig.Action(AliControlCommands.TASK_VIEW)),
+            DashboardWidget("dash_explorer", WidgetType.ACTION, 4, 2, 1, 1, WidgetConfig.Action(AliControlCommands.OPEN_EXPLORER)),
             DashboardWidget("dash_browser", WidgetType.ACTION, 5, 2, 1, 1, WidgetConfig.Action(AliControlCommands.OPEN_BROWSER)),
 
             // Compact media controls replace TASK-007's full-size MEDIA widget here.
@@ -97,7 +101,7 @@ object DefaultDashboardFactory {
         )
     )
 
-    /** Page 3 — Dev: the development app shortcuts, plus system placeholders and All Actions. */
+    /** Page 3 — Dev: VS Code, Terminal, Browser, Windows Search, Explorer, Task Manager, plus system metrics and All Actions. */
     private fun devPage(): DashboardPage = DashboardPage(
         id = "page_dev",
         name = "Dev",
@@ -107,9 +111,9 @@ object DefaultDashboardFactory {
             DashboardWidget("dev_terminal", WidgetType.ACTION, 2, 0, 2, 1, WidgetConfig.Action(AliControlCommands.OPEN_TERMINAL)),
             DashboardWidget("dev_browser", WidgetType.ACTION, 4, 0, 2, 1, WidgetConfig.Action(AliControlCommands.OPEN_BROWSER)),
 
-            DashboardWidget("dev_spotlight", WidgetType.ACTION, 0, 1, 2, 1, WidgetConfig.Action(AliControlCommands.SPOTLIGHT)),
-            DashboardWidget("dev_finder", WidgetType.ACTION, 2, 1, 2, 1, WidgetConfig.Action(AliControlCommands.OPEN_FINDER)),
-            DashboardWidget("dev_activity_monitor", WidgetType.ACTION, 4, 1, 2, 1, WidgetConfig.Action(AliControlCommands.OPEN_ACTIVITY_MONITOR)),
+            DashboardWidget("dev_windows_search", WidgetType.ACTION, 0, 1, 2, 1, WidgetConfig.Action(AliControlCommands.WINDOWS_SEARCH)),
+            DashboardWidget("dev_explorer", WidgetType.ACTION, 2, 1, 2, 1, WidgetConfig.Action(AliControlCommands.OPEN_EXPLORER)),
+            DashboardWidget("dev_task_manager", WidgetType.ACTION, 4, 1, 2, 1, WidgetConfig.Action(AliControlCommands.OPEN_TASK_MANAGER)),
 
             DashboardWidget("dev_screenshot", WidgetType.ACTION, 0, 2, 2, 1, WidgetConfig.Action(AliControlCommands.SCREENSHOT)),
             DashboardWidget("dev_system_settings", WidgetType.ACTION, 2, 2, 2, 1, WidgetConfig.Action(AliControlCommands.OPEN_SYSTEM_SETTINGS)),

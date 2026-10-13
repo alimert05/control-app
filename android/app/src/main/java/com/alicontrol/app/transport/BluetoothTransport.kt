@@ -93,7 +93,8 @@ class BluetoothTransport(context: Context) : Transport {
     }
 
     /**
-     * Starts a BLE scan filtered to [AliControlBleProfile.SERVICE_UUID] only —
+     * Starts a BLE scan filtered to the Ali Control service UUIDs only
+     * ([AliControlBleProfile.SCAN_SERVICE_UUIDS]) —
      * arbitrary Bluetooth accessories are never surfaced. Stops itself after
      * [SCAN_TIMEOUT_MS] if [stopScan] isn't called first. This is the only
      * scan entry point in the app — reconnects never trigger one.
@@ -112,11 +113,13 @@ class BluetoothTransport(context: Context) : Transport {
 
         stopScan()
 
-        val filters = listOf(
+        // Two filters, OR-ed: the full service UUID, and the compact alias an agent
+        // advertises when its adapter refuses a 128-bit connectable advertisement.
+        val filters = AliControlBleProfile.SCAN_SERVICE_UUIDS.map { uuid ->
             ScanFilter.Builder()
-                .setServiceUuid(ParcelUuid(AliControlBleProfile.SERVICE_UUID))
+                .setServiceUuid(ParcelUuid(uuid))
                 .build()
-        )
+        }
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
@@ -360,7 +363,7 @@ class BluetoothTransport(context: Context) : Transport {
                 handleFailure("Service discovery failed (status $status)")
                 return
             }
-            val service = g.getService(AliControlBleProfile.SERVICE_UUID)
+            val service = AliControlBleProfile.pickService { g.getService(it) }
             if (service == null) {
                 handleFailure("Ali Control service not found on device")
                 return

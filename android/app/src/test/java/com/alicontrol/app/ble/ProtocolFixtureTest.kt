@@ -10,10 +10,11 @@ import org.junit.Test
 /**
  * Cross-platform protocol fixtures. The literal JSON strings in this file
  * MUST match the ones in
- * macos/Tests/AliControlMacTests/ProtocolFixtureTests.swift exactly — the
- * two files exist specifically to catch wire-format drift between the two
+ * windows/AliControlWindows.Tests/Protocol (ProtocolMessageTests, LiveStateMessagesTests,
+ * DesktopInfoTests) exactly — the
+ * two sets of tests exist specifically to catch wire-format drift between the two
  * platforms, and were added after a real bug where every command arrived on
- * macOS as unparseable garbage (see [malformedMessagesFailSafely] for the
+ * the desktop agent as unparseable garbage (see [malformedMessagesFailSafely] for the
  * actual shape of that failure — it was BLE MTU truncation of an otherwise
  * fully compatible format, not a field-name/JSON-shape mismatch).
  */
@@ -36,15 +37,15 @@ class ProtocolFixtureTest {
     }
 
     @Test
-    fun parsesCanonicalInitialConnectedStateSentByMacOS() {
+    fun parsesCanonicalInitialConnectedStateSentByTheDesktopAgent() {
         val decoded = ProtocolMessage.fromJson("{\"type\":\"state\",\"status\":\"connected\"}")
         assertEquals(ProtocolMessage(type = ProtocolMessage.TYPE_STATE, status = "connected"), decoded)
     }
 
     @Test
-    fun parsesCanonicalOkAckSentByMacOS() {
-        // Exactly what macOS's ProtocolMessage.encoded() produces for a
-        // successful volume_up ack — see ProtocolFixtureTests.swift.
+    fun parsesCanonicalOkAckSentByTheDesktopAgent() {
+        // Exactly what the Windows agent's ProtocolMessage.Encode() produces for a
+        // successful volume_up ack — see ProtocolMessageTests.cs.
         val decoded = ProtocolMessage.fromJson("{\"type\":\"state\",\"action\":\"volume_up\",\"status\":\"ok\"}")
         assertEquals("state", decoded?.type)
         assertEquals("volume_up", decoded?.action)
@@ -52,7 +53,7 @@ class ProtocolFixtureTest {
     }
 
     @Test
-    fun parsesCanonicalErrorAckSentByMacOS() {
+    fun parsesCanonicalErrorAckSentByTheDesktopAgent() {
         val decoded = ProtocolMessage.fromJson("{\"type\":\"state\",\"action\":\"open_terminal\",\"status\":\"error\"}")
         assertEquals("error", decoded?.status)
         assertEquals("open_terminal", decoded?.action)
@@ -71,19 +72,19 @@ class ProtocolFixtureTest {
 
     // -- TASK-009 live-state fixtures --
     //
-    // These literals are exactly what macOS's MetricsMessage/PlaybackMessage/
+    // These literals are exactly what the Windows agent's LiveStateMessages.Metrics/Playback/
     // TrackMessage encode to — see the matching assertions in
-    // macos/Tests/AliControlMacTests/ProtocolFixtureTests.swift.
+    // windows/AliControlWindows.Tests/Protocol/LiveStateMessagesTests.cs.
 
     @Test
-    fun parsesCanonicalMetricsNotificationSentByMacOS() {
+    fun parsesCanonicalMetricsNotificationSentByTheDesktopAgent() {
         val decoded = LiveStateMessage.fromJson("{\"type\":\"metrics\",\"cpu\":34,\"memory\":48}")
 
         assertEquals(LiveStateMessage.Metrics(cpuPercent = 34, memoryPercent = 48), decoded)
     }
 
     @Test
-    fun parsesCanonicalPlaybackNotificationSentByMacOS() {
+    fun parsesCanonicalPlaybackNotificationSentByTheDesktopAgent() {
         val json = "{\"type\":\"media\",\"available\":true,\"source\":\"spotify\",\"playing\":true,\"position\":83,\"duration\":214}"
 
         val decoded = LiveStateMessage.fromJson(json) as LiveStateMessage.Playback
@@ -94,14 +95,14 @@ class ProtocolFixtureTest {
     }
 
     @Test
-    fun parsesCanonicalUnavailableMediaNotificationSentByMacOS() {
+    fun parsesCanonicalUnavailableMediaNotificationSentByTheDesktopAgent() {
         val decoded = LiveStateMessage.fromJson("{\"type\":\"media\",\"available\":false}") as LiveStateMessage.Playback
 
         assertEquals(false, decoded.isAvailable)
     }
 
     @Test
-    fun parsesCanonicalTrackNotificationSentByMacOS() {
+    fun parsesCanonicalTrackNotificationSentByTheDesktopAgent() {
         val json = "{\"type\":\"track\",\"title\":\"Song\",\"artist\":\"Artist\",\"album\":\"Album\"}"
 
         assertEquals(LiveStateMessage.Track("Song", "Artist", "Album"), LiveStateMessage.fromJson(json))
@@ -125,8 +126,8 @@ class ProtocolFixtureTest {
 
     @Test
     fun protocolLayerDoesNotItselfValidateActionsAgainstTheAllowlist() {
-        // Allowlist enforcement is CommandDispatcher's job on macOS (see
-        // CommandDispatcherTests.testUnsupportedActionReturnsErrorWithoutCallingController),
+        // Allowlist enforcement is the Windows agent's CommandDispatcher job (see
+        // DispatchTests.UnsupportedActionIsRejectedWithoutExecutingAnything),
         // not the message envelope's — parsing must not throw or reject an
         // unrecognized action, so a desktop agent can send back a clean
         // error state instead of the tablet just discarding it silently.

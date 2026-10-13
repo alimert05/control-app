@@ -1,5 +1,7 @@
 # TASK-009A — Media Artwork over BLE
 
+> **Historical document.** Written when macOS was the reference platform; the wire protocol and behaviour described here are unchanged. On Windows, CPU/RAM/GPU come from native counters and media/artwork from the system media session instead of Mach APIs and AppleScript. See [docs/WINDOWS_MIGRATION.md](../WINDOWS_MIGRATION.md) §7 and §10.
+
 ## Goal
 
 Add real album artwork support to the existing Media widget without breaking the reliable BLE live-state system from TASK-009.

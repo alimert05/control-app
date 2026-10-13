@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Ali Control desktop agent for Windows 11 (x64).
+
+    - Native .NET (no Electron, no Node.js, no Python, no local server).
+    - WinExe + WinForms NotifyIcon: a tray-only background app with no console
+      window and no persistent main window.
+    - net10.0-windows10.0.19041.0: the Windows SDK projection that gives direct
+      access to the WinRT Bluetooth LE GATT server (GattServiceProvider), the
+      system media session API (GlobalSystemMediaTransportControls) and WinRT
+      imaging. No NuGet packages are needed at runtime.
+    - Runs as a standard user. There is no app manifest that requests elevation
+      (the SDK default is asInvoker).
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AssemblyName>AliControl</AssemblyName>
+    <RootNamespace>AliControlWindows</RootNamespace>
+    <ApplicationIcon>Assets\AliControl.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Product>Ali Control</Product>
+    <Description>Ali Control desktop agent for Windows</Description>
+    <Version>0.2.0</Version>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AliControlWindows.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\AliControl.ico" Link="Assets\AliControl.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

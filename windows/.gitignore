@@ -1,0 +1,10 @@
+# .NET build output
+bin/
+obj/
+# Published application (scripts/build.ps1 writes dist/AliControl/AliControl.exe)
+dist/
+# IDE / test artefacts
+.vs/
+*.user
+*.suo
+TestResults/

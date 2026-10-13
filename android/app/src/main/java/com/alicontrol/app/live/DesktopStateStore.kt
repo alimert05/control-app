@@ -3,6 +3,7 @@ package com.alicontrol.app.live
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import com.alicontrol.app.actions.Platform
 import com.alicontrol.app.transport.TransportListener
 import com.alicontrol.app.live.artwork.ArtworkCache
 import com.alicontrol.app.live.artwork.ArtworkTransferController
@@ -97,8 +98,8 @@ class DesktopStateStore(
     // -- TransportListener --
 
     override fun onConnected() {
-        // A fresh session: never inherit anything from the previous one, even
-        // if it was the same Mac a moment ago.
+        // A fresh session: never inherit anything from the previous one — including
+        // which desktop it was — even if it was the same PC a moment ago.
         clear()
     }
 
@@ -157,6 +158,28 @@ class DesktopStateStore(
                 },
                 artwork = if (message.isAvailable) state.artwork else artwork.onTrackArtworkChanged(null),
                 mediaReceivedAtMs = now
+            )
+
+            is LiveStateMessage.Desktop -> state.copy(
+                // A new introduction starts the capability list over: the desktop re-announces
+                // everything it supports in the messages that follow.
+                desktop = DesktopInfo(
+                    hasIdentity = true,
+                    platform = Platform.fromWireId(message.platformId),
+                    platformId = message.platformId,
+                    name = message.name?.takeIf { it.isNotBlank() },
+                    protocolVersion = message.protocolVersion,
+                    capabilities = null
+                )
+            )
+
+            is LiveStateMessage.Capabilities -> state.copy(
+                desktop = state.desktop.copy(
+                    // Additive: a long list may be split over several messages. Ids this build
+                    // does not know are ignored.
+                    capabilities = (state.desktop.capabilities ?: emptySet()) +
+                        message.ids.mapNotNull(DesktopCapability::fromWireId)
+                )
             )
 
             is LiveStateMessage.Track -> {

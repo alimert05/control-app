@@ -6,9 +6,10 @@ import com.alicontrol.app.live.artwork.MediaArtworkState
  * Live system telemetry reported by the connected desktop.
  *
  * Every field is nullable and null means **unavailable**, never zero. The
- * desktop omits a metric it cannot measure (macOS has no public GPU or
- * thermal API — see the macOS `SystemTelemetryProvider`), and that absence
- * travels all the way to the widget, which renders `--`. A widget must never
+ * desktop omits a metric it cannot measure (the Windows agent has no reliable
+ * user-mode GPU-temperature or CPU-temperature source, and omits GPU usage on
+ * machines without GPU engine counters), and that absence travels all the way to
+ * the widget, which renders `--`. A widget must never
  * be able to confuse "no data" with "measured 0%".
  */
 data class SystemMetrics(
@@ -60,6 +61,10 @@ data class MediaState(
  * live data that is never written anywhere. A widget's *position* is saved;
  * the CPU reading it happens to be showing is not.
  *
+ * [desktop] is the connected desktop's identity (platform, name, capabilities) as
+ * announced by its `desktop_info` and `capabilities` messages — the one place the
+ * app learns which platform it is connected to.
+ *
  * [metricsReceivedAtMs]/[mediaReceivedAtMs] are elapsed-time marks used to
  * expire data that has stopped arriving — see [isMetricsFresh].
  */
@@ -67,6 +72,8 @@ data class DesktopState(
     val metrics: SystemMetrics = SystemMetrics.UNAVAILABLE,
     val media: MediaState = MediaState.UNAVAILABLE,
     val artwork: MediaArtworkState = MediaArtworkState.NONE,
+    /** Who the desktop is and what it can do. Never expires while connected; reset on disconnect. */
+    val desktop: DesktopInfo = DesktopInfo.UNKNOWN,
     val metricsReceivedAtMs: Long = 0L,
     val mediaReceivedAtMs: Long = 0L
 ) {

@@ -1,5 +1,7 @@
 # TASK-008 — Dashboard Refinement & Customization Engine
 
+> **Historical document.** Written when macOS was the reference platform; the dashboard architecture described here is unchanged. Action names such as Spotlight / Mission Control / Finder / Activity Monitor are now Windows Search / Task View / File Explorer / Task Manager, and saved layouts are migrated automatically (schema 1 → 2). See [docs/WINDOWS_MIGRATION.md](../WINDOWS_MIGRATION.md).
+
 ## Goal
 
 Refine the current multi-page dashboard design and implement the first real dashboard customization system.

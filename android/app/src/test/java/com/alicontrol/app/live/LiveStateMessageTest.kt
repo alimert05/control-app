@@ -16,7 +16,7 @@ class LiveStateMessageTest {
     // -- metrics --
 
     @Test
-    fun parsesTheMetricsMessageMacOsSends() {
+    fun parsesTheMetricsMessageTheDesktopSends() {
         val message = LiveStateMessage.fromJson("{\"type\":\"metrics\",\"cpu\":34,\"memory\":48}")
 
         assertEquals(LiveStateMessage.Metrics(cpuPercent = 34, memoryPercent = 48), message)
@@ -63,7 +63,7 @@ class LiveStateMessageTest {
     // -- playback --
 
     @Test
-    fun parsesThePlaybackMessageMacOsSends() {
+    fun parsesThePlaybackMessageTheDesktopSends() {
         val json = "{\"type\":\"media\",\"available\":true,\"source\":\"spotify\",\"playing\":true,\"position\":83,\"duration\":214}"
 
         val message = LiveStateMessage.fromJson(json)
@@ -115,7 +115,7 @@ class LiveStateMessageTest {
     // -- track --
 
     @Test
-    fun parsesTheTrackMessageMacOsSends() {
+    fun parsesTheTrackMessageTheDesktopSends() {
         val json = "{\"type\":\"track\",\"title\":\"Song\",\"artist\":\"Artist\",\"album\":\"Album\",\"artworkId\":\"0123456789abcdef\"}"
 
         assertEquals(LiveStateMessage.Track("Song", "Artist", "Album", "0123456789abcdef"), LiveStateMessage.fromJson(json))
@@ -154,7 +154,7 @@ class LiveStateMessageTest {
 
     @Test
     fun parsesALongTrackMessageOfTheMaximumSizeTheDesktopCanSend() {
-        // macOS bounds each field, but the parser must not care how long the
+        // The desktop bounds each field, but the parser must not care how long the
         // payload is — only that it is complete.
         val title = "A".repeat(48)
         val artist = "B".repeat(36)

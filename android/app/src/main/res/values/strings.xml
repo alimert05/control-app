@@ -20,7 +20,7 @@
     <string name="action_open_terminal">Terminal</string>
 
     <string name="error_not_connected">Connect to a computer first</string>
-    <string name="mac_ack_format">%1$s: %2$s</string>
+    <string name="desktop_ack_format">%1$s: %2$s</string>
 
     <string name="connect_screen_title">Connect to Ali Control</string>
     <string name="scanning_message">Scanning for Ali Control devices…</string>
@@ -109,8 +109,42 @@
         <item quantity="one">Delete \"%1$s\" and the %2$d widget on it?</item>
         <item quantity="other">Delete \"%1$s\" and the %2$d widgets on it?</item>
     </plurals>
-    <string name="reset_confirm_title">Reset to default</string>
-    <string name="reset_confirm_message">Discard your dashboard layout and restore the default pages? No other settings are affected.</string>
+
+    <!-- TASK-010: dashboard profiles -->
+    <string name="profile_switcher_description">Switch profile</string>
+    <string name="profile_manage">Manage Profiles</string>
+    <string name="profile_manager_title">Manage profiles</string>
+    <string name="profile_add">Add profile</string>
+    <string name="profile_new_default_name">New Profile</string>
+    <string name="profile_name_hint">Profile name</string>
+    <string name="profile_rename">Rename</string>
+    <string name="profile_duplicate">Duplicate</string>
+    <string name="profile_move_up">Move up</string>
+    <string name="profile_move_down">Move down</string>
+    <string name="profile_set_default">Set as startup default</string>
+    <string name="profile_switch_to">Switch to this profile</string>
+    <string name="profile_reset_builtin">Reset to Default Layout</string>
+    <string name="profile_reset_custom">Clear layout</string>
+    <string name="profile_delete">Delete</string>
+
+    <string name="profile_badge_built_in">Built-in</string>
+    <string name="profile_badge_custom">Custom</string>
+    <string name="profile_badge_active">Active</string>
+    <string name="profile_badge_startup">Startup default</string>
+    <plurals name="profile_page_count">
+        <item quantity="one">%d page</item>
+        <item quantity="other">%d pages</item>
+    </plurals>
+
+    <string name="profile_delete_confirm_title">Delete profile</string>
+    <string name="profile_delete_confirm_message">Delete \"%1$s\" and its layout? Other profiles aren\'t affected.</string>
+    <string name="profile_builtin_delete_title">Built-in profile</string>
+    <string name="profile_builtin_delete_message">\"%1$s\" is built in and can\'t be deleted. You can reset it to its default layout instead.</string>
+    <string name="profile_reset_builtin_title">Reset to Default Layout</string>
+    <string name="profile_reset_builtin_message">Replace the layout of \"%1$s\" with its default? Your changes to this profile are lost. Other profiles, the connection and settings aren\'t affected.</string>
+    <string name="profile_reset_custom_title">Clear layout</string>
+    <string name="profile_reset_custom_message">Remove every page and widget from \"%1$s\"? Other profiles, the connection and settings aren\'t affected.</string>
+    <string name="edit_rejected_invalid_profile_name">Enter a profile name</string>
 
     <string name="edit_rejected_overlap">Doesn\'t fit — another widget is there</string>
     <string name="edit_rejected_bounds">Doesn\'t fit on the grid</string>
@@ -120,6 +154,9 @@
     <string name="edit_rejected_unknown">That change isn\'t possible</string>
     <string name="edit_rejected_invalid_name">Enter a page name</string>
     <string name="edit_rejected_last_page">The last page can\'t be deleted</string>
+    <string name="edit_rejected_unknown_profile">That profile no longer exists</string>
+    <string name="edit_rejected_built_in">Built-in profiles can\'t be deleted — reset them instead</string>
+    <string name="edit_rejected_last_profile">The last profile can\'t be deleted</string>
 
     <string name="overview_weather_unavailable">Weather unavailable</string>
     <string name="overview_weather_unavailable_at">%1$s • Weather unavailable</string>
@@ -129,5 +166,5 @@
     <string name="overview_next_event_unavailable" tools:ignore="TypographyDashes">Next event: --</string>
 
     <string name="action_badge_confirm">Confirm</string>
-    <string name="action_badge_accessibility">Accessibility</string>
+    <string name="action_badge_input">Keyboard input</string>
 </resources>

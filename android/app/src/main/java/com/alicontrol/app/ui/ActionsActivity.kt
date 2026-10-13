@@ -22,8 +22,8 @@ import com.alicontrol.app.transport.TransportManager
 
 /**
  * TASK-006 temporary/testing screen: lists every [ActionLibrary] action that
- * supports macOS (the only implemented desktop agent so far), grouped by
- * category, so the new action IDs can be exercised manually without
+ * the connected desktop's platform supports (Windows unless the desktop says
+ * otherwise), grouped by category, so the new action IDs can be exercised manually without
  * overcrowding the main dashboard. Rows are built at runtime directly from
  * the registry — not hand-authored XML — which is the whole point of having
  * a structured action library. TASK-007 replaces this screen with the real
@@ -45,7 +45,7 @@ class ActionsActivity : AppCompatActivity() {
             if (message.type != ProtocolMessage.TYPE_STATE) return
             val action = message.action ?: return
             val status = message.status ?: return
-            Toast.makeText(this@ActionsActivity, getString(R.string.mac_ack_format, action, status), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@ActionsActivity, getString(R.string.desktop_ack_format, action, status), Toast.LENGTH_SHORT).show()
         }
 
         override fun onError(message: String) = refreshStatus()
@@ -90,7 +90,8 @@ class ActionsActivity : AppCompatActivity() {
     }
 
     private fun buildActionRows() {
-        val byCategory = ActionLibrary.forPlatform(Platform.MACOS).groupBy { it.category }
+        val platform = (application as AliControlApp).desktopStateStore.state.desktop.platform ?: Platform.DEFAULT
+        val byCategory = ActionLibrary.forPlatform(platform).groupBy { it.category }
         for ((category, actions) in byCategory) {
             addCategoryHeader(category.name)
             for (action in actions) addActionRow(action)

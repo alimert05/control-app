@@ -20,11 +20,13 @@ import androidx.core.content.ContextCompat
 import com.alicontrol.app.R
 import com.alicontrol.app.actions.ActionDispatcher
 import com.alicontrol.app.actions.ActionLibrary
-import com.alicontrol.app.actions.Platform
 import com.alicontrol.app.dashboard.DashboardWidget
 import com.alicontrol.app.dashboard.ShortcutDestination
+import com.alicontrol.app.dashboard.WidgetAvailability
+import com.alicontrol.app.dashboard.WidgetSupport
 import com.alicontrol.app.dashboard.WidgetConfig
 import com.alicontrol.app.icons.ActionIconRegistry
+import com.alicontrol.app.live.DesktopInfo
 import com.alicontrol.app.live.LiveValueFormatter
 import com.alicontrol.app.live.MediaState
 import com.alicontrol.app.live.MetricType
@@ -56,16 +58,19 @@ import java.util.Date
  * [ActionDispatcher] independently re-checks the live connection right before
  * sending, so that dimming is UX, not the actual guard.
  *
- * Platform awareness: only the macOS agent exists and the protocol carries no
- * "connected platform" field, so [CURRENT_PLATFORM] is a constant, exactly as
- * [ActionsActivity] already assumes. An action unsupported by that platform
- * renders **disabled** and stays in the saved layout — never silently
- * dropped. A future Windows agent only needs this constant replaced by a real
- * signal.
+* Platform awareness: the connected desktop identifies itself (`desktop_info`) and
+ * announces its capabilities, and [desktopInfo] hands the latest of that to every
+ * widget — nothing here assumes which platform is connected. A widget the connected
+ * desktop cannot serve (an action its platform lacks, or a capability it did not
+ * announce) renders **disabled** and stays in the saved layout — never silently
+ * dropped; see [WidgetSupport]. Availability is re-evaluated on every live-state
+ * update, so it follows the desktop that is connected *now*.
  */
 class DashboardWidgetViewFactory(
     private val activity: AppCompatActivity,
-    private val dispatcher: ActionDispatcher
+    private val dispatcher: ActionDispatcher,
+    /** The connected desktop's latest announced identity and capabilities. */
+    private val desktopInfo: () -> DesktopInfo = { DesktopInfo.UNKNOWN }
 ) {
 
     private enum class SizeClass { COMPACT, WIDE, LARGE }
@@ -118,11 +123,29 @@ class DashboardWidgetViewFactory(
         if (editing && editListener != null) {
             WidgetEditGestures.attachDrag(card, widget, editListener)
             if (selected) addSelectionChrome(container, card, widget, editListener)
-        } else if (widget.isRemoteControl()) {
-            // Outside edit mode only: dim what can't currently be sent.
-            applyRemoteEnabledState(card, isConnected && widget.isSupportedOn(CURRENT_PLATFORM))
+        } else if (widget.isRemoteControl() || WidgetSupport.requiredCapabilities(widget).isNotEmpty()) {
+            // Outside edit mode only: dim what the connected desktop can't serve right now.
+            bindAvailability(card, widget, isConnected, bindings)
         }
         return card
+    }
+
+    /**
+     * Dims (and, for remote controls, disables) a widget the connected desktop
+     * cannot serve. Evaluated now and again on every live-state update, because the
+     * desktop's identity and capabilities arrive just after the connection is up.
+     */
+    private fun bindAvailability(card: View, widget: DashboardWidget, isConnected: Boolean, bindings: LiveWidgetBindings?) {
+        val update = { desktop: DesktopInfo ->
+            val available = WidgetSupport.availability(widget, desktop) == WidgetAvailability.AVAILABLE
+            if (widget.isRemoteControl()) {
+                applyRemoteEnabledState(card, isConnected && available)
+            } else {
+                card.alpha = if (available) 1f else DISABLED_ALPHA
+            }
+        }
+        update(desktopInfo())
+        bindings?.register { state -> update(state.desktop) }
     }
 
     // -- edit chrome --
@@ -200,7 +223,7 @@ class DashboardWidgetViewFactory(
                 gravity = Gravity.CENTER
                 setPadding(dp(2), 0, dp(2), 0)
                 addView(iconView(actionId, ICON_SIZE_COMPACT_DP))
-                addView(labelView(shortLabel(label), 9f).apply { setPadding(0, dp(4), 0, 0) })
+                addView(labelView(action?.shortLabel ?: shortLabel(label), 9f).apply { setPadding(0, dp(4), 0, 0) })
             }
         }
         root.contentDescription = label
@@ -208,12 +231,12 @@ class DashboardWidgetViewFactory(
             root.isClickable = true
             root.isFocusable = true
             root.setBackgroundResource(pressedBackgroundRes())
-            root.setOnClickListener { if (isActionAvailableForCurrentPlatform(actionId)) dispatcher.dispatch(actionId) }
+            root.setOnClickListener { if (isActionAvailable(actionId)) dispatcher.dispatch(actionId) }
         }
         return root
     }
 
-    /** A 1x1 tile has room for one word — "Mission Control" becomes "Mission", the icon carries the rest. */
+    /** A 1x1 tile has room for one word — the first word of a label unless the action defines its own short label. */
     private fun shortLabel(label: String): String = label.substringBefore(' ').trim()
 
     // -- ACTION_GROUP / MEDIA transport row --
@@ -241,7 +264,7 @@ class DashboardWidgetViewFactory(
                 isClickable = true
                 isFocusable = true
                 setBackgroundResource(pressedBackgroundRes())
-                setOnClickListener { if (isActionAvailableForCurrentPlatform(actionId)) dispatcher.dispatch(actionId) }
+                setOnClickListener { if (isActionAvailable(actionId)) dispatcher.dispatch(actionId) }
             }
             addView(iconView(actionId, ICON_SIZE_WIDE_DP).apply {
                 layoutParams = FrameLayout.LayoutParams(dp(ICON_SIZE_WIDE_DP), dp(ICON_SIZE_WIDE_DP), Gravity.CENTER)
@@ -795,17 +818,10 @@ class DashboardWidgetViewFactory(
         }
     }
 
-    private fun isActionAvailableForCurrentPlatform(actionId: String): Boolean =
-        ActionLibrary.find(actionId)?.supports(CURRENT_PLATFORM) == true
+    /** Platform and capability gate for a tap, judged against the desktop connected right now. */
+    private fun isActionAvailable(actionId: String): Boolean = WidgetSupport.canSend(actionId, desktopInfo())
 
     companion object {
-        /**
-         * No BLE "connected platform" signal exists yet (see class doc) —
-         * matches [ActionsActivity]'s existing `Platform.MACOS` assumption,
-         * since macOS is the only implemented agent.
-         */
-        val CURRENT_PLATFORM = Platform.MACOS
-
         private const val CARD_CORNER_RADIUS_DP = 14
         private const val CARD_MARGIN_DP = 4
         private const val ICON_SIZE_COMPACT_DP = 20

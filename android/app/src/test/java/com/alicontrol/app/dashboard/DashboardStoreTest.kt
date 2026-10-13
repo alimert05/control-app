@@ -81,7 +81,7 @@ class DashboardStoreTest {
     @Test
     fun structurallyInvalidStorageFallsBackToTheDefaultLayout() {
         val overlapping = """
-            {"schemaVersion":1,"pages":[{"id":"p","name":"P","order":0,"widgets":[
+            {"schemaVersion":2,"pages":[{"id":"p","name":"P","order":0,"widgets":[
               {"id":"a","type":"ACTION","x":0,"y":0,"w":2,"h":2,"config":{"actionId":"lock_screen"}},
               {"id":"b","type":"ACTION","x":0,"y":0,"w":1,"h":1,"config":{"actionId":"screenshot"}}
             ]}]}
@@ -114,5 +114,69 @@ class DashboardStoreTest {
 
         assertEquals(2, persistence.writes)
         assertEquals(customDashboard(), store.load())
+    }
+
+    // -- saved-layout migration (macOS-era schema 1 -> Windows schema 2) --
+
+    private val macOsEraJson = """
+        {"schemaVersion":1,"pages":[{"id":"p","name":"Mine","order":0,"widgets":[
+          {"id":"a","type":"ACTION","x":0,"y":0,"w":1,"h":1,"config":{"actionId":"spotlight"}},
+          {"id":"b","type":"ACTION","x":1,"y":0,"w":2,"h":1,"config":{"actionId":"open_activity_monitor"}},
+          {"id":"c","type":"ACTION","x":0,"y":1,"w":1,"h":1,"config":{"actionId":"lock_screen"}}
+        ]}]}
+    """.trimIndent()
+
+    @Test
+    fun aMacOsEraLayoutLoadsMigratedInsteadOfFallingBackToTheDefaults() {
+        val store = DashboardStore(FakePersistence(macOsEraJson))
+
+        val loaded = store.load()
+
+        assertNotEquals(DefaultDashboardFactory.create(), loaded)
+        assertEquals(listOf("p"), loaded.pages.map { it.id })
+        val widgets = loaded.page("p")!!.widgets
+        assertEquals(listOf("windows_search"), widgets.first { it.id == "a" }.referencedActionIds())
+        assertEquals(listOf("open_task_manager"), widgets.first { it.id == "b" }.referencedActionIds())
+        assertEquals(listOf("lock_screen"), widgets.first { it.id == "c" }.referencedActionIds())
+        assertEquals(3, widgets.size)
+    }
+
+    @Test
+    fun theUpgradedLayoutIsWrittenBackSoTheMigrationRunsOnce() {
+        val persistence = FakePersistence(macOsEraJson)
+        val store = DashboardStore(persistence)
+
+        val first = store.load()
+
+        assertEquals(1, persistence.writes)
+        assertTrue(persistence.stored!!.contains("\"schemaVersion\":2"))
+        assertFalse(persistence.stored!!.contains("spotlight"))
+        assertFalse(persistence.stored!!.contains("open_activity_monitor"))
+
+        val second = store.load()
+        assertEquals(first, second)
+        assertEquals("a current-schema layout must not be rewritten on every load", 1, persistence.writes)
+    }
+
+    @Test
+    fun aMigratedLayoutCountsAsAStoredUserLayout() {
+        assertTrue(DashboardStore(FakePersistence(macOsEraJson)).hasStoredLayout())
+    }
+
+    @Test
+    fun migrationNeverReplacesTheUsersLayoutWithAChangedDefault() {
+        val newDefault = Dashboard(listOf(DashboardPage("brand_new", "Brand New", 0, emptyList())))
+        val loaded = DashboardStore(FakePersistence(macOsEraJson)) { newDefault }.load()
+        assertEquals(listOf("p"), loaded.pages.map { it.id })
+    }
+
+    @Test
+    fun anUnmigratableLayoutStillFallsBackSafely() {
+        val unknown = macOsEraJson.replace("lock_screen", "run_shell_command")
+        val persistence = FakePersistence(unknown)
+        val store = DashboardStore(persistence)
+
+        assertEquals(DefaultDashboardFactory.create(), store.load())
+        assertEquals("nothing is rewritten when the layout was not understood", 0, persistence.writes)
     }
 }

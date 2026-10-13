@@ -1,5 +1,7 @@
 # TASK-006 — Action Library Foundation
 
+> **Historical document.** Written when macOS was the reference platform. The action *library architecture* is unchanged, but the macOS-only actions were replaced by Windows equivalents (`spotlight`→`windows_search`, `mission_control`→`task_view`, `open_finder`→`open_explorer`, `open_activity_monitor`→`open_task_manager`), `ACCESSIBILITY` became `INPUT_SIMULATION`, and `MACOS` was retired from `Platform`. See [docs/WINDOWS_MIGRATION.md](../WINDOWS_MIGRATION.md) §8.
+
 ## Goal
 
 Create a structured, platform-aware action library for Ali Control.
