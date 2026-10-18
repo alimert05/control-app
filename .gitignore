@@ -1,0 +1,46 @@
+# Repository-wide ignore rules. android/ and windows/ keep their own, more specific .gitignore files.
+
+# --- Operating system ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Editors / IDEs ---
+.idea/
+.vscode/
+.vs/
+*.iml
+*.swp
+
+# --- Build output, caches and packaged artifacts ---
+build/
+.gradle/
+bin/
+obj/
+dist/
+TestResults/
+*.apk
+*.aab
+
+# --- Logs ---
+*.log
+hs_err_pid*
+
+# --- Local configuration, signing material and secrets (none are used by the project) ---
+local.properties
+.env
+.env.*
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.pem
+
+# --- Internal development documents: kept locally, not part of the public repository ---
+/TASKS.md
+/tasks.md
+/docs/tasks/
+/docs/WINDOWS_MIGRATION.md
+/docs/internal/
+/notes/
+/scratch/

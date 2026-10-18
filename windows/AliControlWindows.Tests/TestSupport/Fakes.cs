@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using AliControlWindows.Actions;
 using AliControlWindows.Artwork;
 using AliControlWindows.BLE;
@@ -247,10 +248,18 @@ internal sealed class FakeStartupStore : AliControlWindows.App.IStartupStore
     public void DeleteStartupApproved(string name) => Approved = null;
 }
 
-/// <summary>Collects posted work and runs it on demand, in order, on the calling thread.</summary>
+/// <summary>
+/// Collects posted work and runs it on demand, in order, on the calling thread.
+/// <para>
+/// <see cref="Post(Action)"/> can be called from any thread, exactly like the production
+/// <see cref="SerialAgentExecutor"/> (see <see cref="IAgentExecutor"/>): the notification pump
+/// raises <c>Drained</c> from a thread-pool thread, so it enqueues while the test thread is
+/// dequeuing in <see cref="RunAllAsync"/>. The queue therefore has to be thread-safe.
+/// </para>
+/// </summary>
 internal sealed class ManualExecutor : IAgentExecutor
 {
-    private readonly Queue<Func<Task>> _queue = new();
+    private readonly ConcurrentQueue<Func<Task>> _queue = new();
 
     public void Post(Action work) => _queue.Enqueue(() =>
     {

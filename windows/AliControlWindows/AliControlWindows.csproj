@@ -30,7 +30,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Product>Ali Control</Product>
     <Description>Ali Control desktop agent for Windows</Description>
-    <Version>0.2.0</Version>
+    <Version>0.1.0</Version>
     <InvariantGlobalization>false</InvariantGlobalization>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>

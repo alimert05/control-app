@@ -28,7 +28,7 @@ public static class AliControlBleProfile
     /// advertises fine. In that case the agent hosts the *same* characteristics
     /// under this alias service, and the tablet — which scans for both UUIDs and
     /// looks up whichever service it finds — connects exactly as before.
-    /// See docs/WINDOWS_MIGRATION.md ("BLE advertising on Windows").
+    /// See docs/ARCHITECTURE.md ("The compact alias").
     /// </summary>
     public static readonly Guid DiscoveryServiceUuid = Guid.Parse("a11c0e01-0000-1000-8000-00805f9b34fb");
 

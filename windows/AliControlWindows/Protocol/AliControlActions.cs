@@ -9,7 +9,7 @@ namespace AliControlWindows.Protocol;
 /// Stable IDs are kept wherever the Windows behaviour is the same product
 /// feature. Four IDs that existed while macOS was the reference platform were
 /// replaced by their Windows equivalents (the tablet migrates saved layouts
-/// automatically — see docs/WINDOWS_MIGRATION.md): <c>windows_search</c>,
+/// automatically — see docs/ANDROID_CLIENT.md): <c>windows_search</c>,
 /// <c>task_view</c>, <c>open_explorer</c> and <c>open_task_manager</c>.
 ///
 /// Nothing outside this list is ever executed: there is no generic command

@@ -183,7 +183,7 @@ class BuiltInProfilesTest {
     @Test
     fun devExposesExactlyTheExistingWindowsActionsItNeeds() {
         // The whole set, spelled out: anything beyond the shipped Windows launchers and edit helpers
-        // (Claude Code, Codex, Git, build/test workflows are TASK-014) would show up here as a failure.
+        // (AI-assistant, Git and build/test workflows are planned for a later release) would show up here as a failure.
         assertEquals(
             setOf(
                 AliControlCommands.OPEN_VSCODE, AliControlCommands.OPEN_TERMINAL, AliControlCommands.OPEN_BROWSER,

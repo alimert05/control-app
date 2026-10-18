@@ -10,7 +10,7 @@ namespace AliControlWindows.Telemetry;
 /// pipeline ever invents a number.
 ///
 /// Temperatures exist in the model (and on the wire) but are never populated by
-/// this agent: see docs/WINDOWS_MIGRATION.md for why.
+/// this agent: see docs/WINDOWS_AGENT.md for why.
 /// </summary>
 public sealed record SystemMetrics(
     double? CpuPercent = null,

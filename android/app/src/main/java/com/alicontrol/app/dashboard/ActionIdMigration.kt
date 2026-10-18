@@ -26,7 +26,7 @@ import com.alicontrol.app.ble.AliControlCommands
  */
 object ActionIdMigration {
 
-    /** The complete list of renamed ids — also the documentation of record (see docs/WINDOWS_MIGRATION.md). */
+    /** The complete list of renamed ids — also the documentation of record (see docs/ANDROID_CLIENT.md). */
     val LEGACY_MACOS_ACTIONS: Map<String, String> = mapOf(
         "spotlight" to AliControlCommands.WINDOWS_SEARCH,
         "mission_control" to AliControlCommands.TASK_VIEW,
